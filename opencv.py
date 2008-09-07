@@ -1,30 +1,73 @@
-# PyCV - A Computer Vision Package for Python Incorporating Fast Training of Face Detection
-# Copyright 2007, 2008 Minh-Tri Pham, Viet-Dung D. Hoang, Tat-Jen Cham, 
-# and Nanyang Technological University
+# ctypes-opencv - A Python wrapper for OpenCV using ctypes
 
-# This file is part of PyCV.
+# Copyright (c) 2006, Michael Otto
+# Copyright (c) 2007, Gary Bishop
+# Copyright (c) 2008, Minh-Tri Pham
+# All rights reserved.
 
-# PyCV is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public 
-# License as published by the Free Software Foundation, either version 
-# 3 of the License, or (at your option) any later version.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 
-# PyCV is distributed in the hope that it will be useful,
+# This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# GNU Lesser General Public License for more details.
 
-# You should have received a copy of the GNU General Public License
+# You should have received a copy of the GNU Lesser General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Non-free versions of PyCV, when available, are under terms different 
-# from those of the General Public License. They do not require you to
-# accompany any object code using PyCV with the corresponding
-# source code. Users interested in such a license should contact us
-# (mtpham@ntu.edu.sg) for more information.
+# For further inquiries, please contact Minh-Tri Pham at pmtri80@gmail.com.
 # ---------------------------------------------------------------------
 #!/usr/bin/env python
-"""
+"""ctypes-opencv - A Python wrapper for OpenCV using ctypes
+
+ctypes-opencv is a Python module which encapsulates the functionality of Intel's Open Source Computer Vision Library (OpenCV). The Open Computer Vision Library is a collection of algorithms and sample code for various computer vision problems. The library is compatible with IPL and utilizes Intel Integrated Performance Primitives for better performance. The goal of ctypes-opencv is to give one Python access to all documented functionality of OpenCV.
+
+:Author: Minh-Tri Pham <pmtri80@gmail.com>
+:Version: 0.2.0 (stable)
+:Released: September 2008 (stable)
+
+Availability
+============
+
+   To get the lastest version, see:
+   http://code.google.com/p/ctypes-opencv/
+
+Requirements
+============
+
+There are two requirements. First, OpenCV 1.0 must be installed on your platform. ctypes-opencv detects the existence of OpenCV by detecting its shared libraries. It uses the shared libraries to provide the functionality. Second, you need package 'ctypes' installed on your Python, which is a built-in starting from Python 2.5.
+
+Installation
+============
+
+No installation is required. Just import this module in your code and run. You can also include this module in your <Python>\lib\site-packages folder, or include the path to the file in your PYTHONPATH variable.
+
+Support
+-------
+
+- Platforms: Win32, Linux, and Mac OS
+- OpenCV version 1.0
+
+How to use
+==========
+
+See the 'sample.c' file for an example of using OpenCV in C, and the 'sample.py' file for the corresponding code in Python. You will find that they are almost identical.
+
+
+Change Log
+==========
+
+ctypes-opencv-0.2.0 stable release
+----------------------------------
+
+- Imported from the improved CVtypes.py file in my pycv package
+
+Notes from former contributors
+==============================
+
 This file started life as cvtypes.py with the following header (that I can't read)
 
 Wrapper-Modul cvtypes.py zur Verwendung der OpenCV-Bibliothek beta5
@@ -82,7 +125,7 @@ elif os.name == 'posix' and sys.platform.startswith('darwin'):
         _cvDLL = cdll.LoadLibrary('libcv.dylib')
         _hgDLL = cdll.LoadLibrary('libhighgui.dylib')
     except:
-        raise ImportError("Cannot import OpenCV's .dynlib files. Make sure you have their path included in your PATH variable.")
+        raise ImportError("Cannot import OpenCV's .dylib files. Make sure you have their path included in your PATH variable.")
 elif os.name == 'nt':
     try:
         _cxDLL = cdll.cxcore100
@@ -868,7 +911,7 @@ class IplImage(Structure):
                 ("imageID", c_void_p),
                 ("tileInfo", c_void_p),
                 ("imageSize", c_int),
-                ("imageData", c_int),
+                ("imageData", c_void_p),
                 ("widthStep", c_int),
                 ("BorderMode", c_int * 4),
                 ("BorderConst", c_int * 4),
@@ -1438,9 +1481,6 @@ class IplConvKernel(Structure):
 class CvChainPtReader(Structure):
     _fields_ = []
     
-class CvHidHaarClassifierCascade(Structure):
-    _fields_ = []
-
 
 # --- 1 Operations on Arrays -------------------------------------------------
 
@@ -4718,8 +4758,8 @@ cvComputeCorrespondEpilines = cfunc('cvComputeCorrespondEpilines', _cvDLL, None,
     ('correspondent_lines', POINTER(CvMat), 1), # CvMat* correspondent_lines
 )
 
-# Convert points to/from homogenious coordinates
-cvConvertPointsHomogenious = cfunc('cvConvertPointsHomogenious', _cvDLL, None,
+# Convert points to/from homogeneous coordinates
+cvConvertPointsHomogeneous = cfunc('cvConvertPointsHomogeneous', _cvDLL, None,
     ('src', POINTER(CvMat), 1), # const CvMat* src
     ('dst', POINTER(CvMat), 1), # CvMat* dst 
 )
@@ -4936,6 +4976,9 @@ cvConvertImage = cfunc('cvConvertImage', _hgDLL, None,
 
 # -- Helpers for access to images for other GUI packages
 
+def cvImageAsString(img):
+    return ctypes.string_at(img[0].imageData, img[0].width*img[0].height*img[0].nChannels)
+
 # Added by Minh-Tri Pham
 def cvCvMatAsBuffer(mat):
     btype = ctypes.c_byte * mat[0].step * mat[0].rows
@@ -4945,9 +4988,9 @@ def cvImageAsBuffer(img):
     btype = ctypes.c_byte * img[0].imageSize
     return buffer(btype.from_address(img[0].imageData))
 
-try:
-    import wx
-    def cvImageAsBitmap(img, flip=True):
+def cvImageAsBitmap(img, flip=True):
+    try:
+        import wx
         sz = cvGetSize(img)
         flags = CV_CVTIMG_SWAP_RB
         if flip:
@@ -4955,8 +4998,8 @@ try:
         cvConvertImage(img, img, flags)
         bitmap = wx.BitmapFromBuffer(sz.width, sz.height, cvImageAsBuffer(img))
         return bitmap
-except ImportError:
-    pass
+    except ImportError:
+        pass
 
 # --- Dokumentationsstrings --------------------------------------------------
 
@@ -6806,9 +6849,9 @@ cvComputeCorrespondEpilines.__doc__ = """void cvComputeCorrespondEpilines(const 
 For points in one image of stereo pair computes the corresponding epilines in the other image
 """
 
-cvConvertPointsHomogenious.__doc__ = """void cvConvertPointsHomogenious(const CvMat* src, CvMat* dst)
+cvConvertPointsHomogeneous.__doc__ = """void cvConvertPointsHomogeneous(const CvMat* src, CvMat* dst)
 
-Convert points to/from homogenious coordinates
+Convert points to/from homogeneous coordinates
 """
 
 cvNamedWindow.__doc__ = """int cvNamedWindow(const char* name, int flags)
