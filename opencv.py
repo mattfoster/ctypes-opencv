@@ -93,7 +93,7 @@ Continuously updated by Minh-Tri Pham since 30 June 2007
 
 # --- Importe ----------------------------------------------------------------
 
-import ctypes, os, sys
+import os, sys
 from ctypes import *
 
 # Added by Minh-Tri Pham
@@ -156,7 +156,7 @@ min_val,max_val,min_loc,max_loc = cvMinMaxLoc(img)
     return CFUNCTYPE(result, *atypes)((name, dll), tuple(aflags))
 
 # hack the ctypes.Structure class to include printing the fields
-class _Structure(_Structure):
+class _Structure(Structure):
     def __repr__(self):
         '''Print the fields'''
         res = []
@@ -478,6 +478,34 @@ class CvMatND(_Structure):
                 ("dim", CvMatNDdim*CV_MAX_DIM)]
 
 #-----------------------------------------------------------------------------
+# Memory storage
+#-----------------------------------------------------------------------------
+
+class CvMemBlock(_Structure): # forward declaration
+    pass
+CvMemBlock._fields_ = [
+    ('prev', POINTER(CvMemBlock)),
+    ('next', POINTER(CvMemBlock)),
+]
+
+CV_STORAGE_MAGIC_VAL = 0x42890000
+
+# Memory storage
+class CvMemStorage(_Structure): # forward declaration
+    pass
+CvMemStorage._fields_ = [
+    ("signature", c_int),
+    ("bottom", POINTER(CvMemBlock)), # first allocated block
+    ("top", POINTER(CvMemBlock)), # current memory block - top of the stack
+    ("parent", POINTER(CvMemStorage)), # borrows new blocks from
+    ("block_size", c_int), # block size
+    ("free_space", c_int)] # free space in the current block
+
+class CvMemStoragePos(_Structure):
+    _fields_ = [('top', POINTER(CvMemBlock)),
+                ('free_space', c_int)]
+    
+#-----------------------------------------------------------------------------
 # Sequence
 #-----------------------------------------------------------------------------
 
@@ -523,7 +551,7 @@ CV_TYPE_NAME_SEQ             = "opencv-sequence"
 CV_TYPE_NAME_SEQ_TREE        = "opencv-sequence-tree"
 
 #-----------------------------------------------------------------------------
-# Set, CvSet is renamed as CvSET to avoid a naming conflict
+# Set
 #-----------------------------------------------------------------------------
 
 class CvSetElem(_Structure):
@@ -538,7 +566,7 @@ def CV_SET_FIELDS():
         ('active_count', c_int),
     ]
 
-class CvSET(_Structure):
+class CvSet(_Structure):
     _fields_ = CV_SET_FIELDS()
 
 CV_SET_ELEM_IDX_MASK   = ((1 << 26) - 1)
@@ -556,7 +584,7 @@ class CvSparseMat(_Structure):
                 ('dims', c_int),
                 ('refcount', c_int_p),
                 ('hdr_refcount', c_int),
-                ('heap', POINTER(CvSET)),
+                ('heap', POINTER(CvSet)),
                 ('hashtable', POINTER(c_void_p)),
                 ('hashsize', c_int),
                 ('valoffset', c_int),
@@ -758,34 +786,6 @@ def cvScalarAll(val0123):
     return CvScalar(val0123, val0123, val0123, val0123)
     
 #-----------------------------------------------------------------------------
-# Memory storage
-#-----------------------------------------------------------------------------
-
-class CvMemBlock(_Structure): # forward declaration
-    pass
-CvMemBlock._fields_ = [
-    ('prev', POINTER(CvMemBlock)),
-    ('next', POINTER(CvMemBlock)),
-]
-
-CV_STORAGE_MAGIC_VAL = 0x42890000
-
-# Memory storage
-class CvMemStorage(_Structure): # forward declaration
-    pass
-CvMemStorage._fields_ = [
-    ("signature", c_int),
-    ("bottom", POINTER(CvMemBlock)), # first allocated block
-    ("top", POINTER(CvMemBlock)), # current memory block - top of the stack
-    ("parent", POINTER(CvMemStorage)), # borrows new blocks from
-    ("block_size", c_int), # block size
-    ("free_space", c_int)] # free space in the current block
-
-class CvMemStoragePos(_Structure):
-    _fields_ = [('top', POINTER(CvMemBlock)),
-                ('free_space', c_int)]
-    
-#-----------------------------------------------------------------------------
 # Graph
 #-----------------------------------------------------------------------------
 
@@ -816,7 +816,7 @@ class CvGraphVtx2D(_Structure):
 
 #    Graph is "derived" from the set (this is set a of vertices) and includes another set (edges)
 def CV_GRAPH_FIELDS():
-    return CV_SET_FIELDS() + [('edges', POINTER(CvSET))]
+    return CV_SET_FIELDS() + [('edges', POINTER(CvSet))]
     
 class CvGraph(_Structure): 
     _fields_ = CV_GRAPH_FIELDS()
@@ -925,8 +925,8 @@ CV_SEQ_CONNECTED_COMP  = (CV_SEQ_KIND_GENERIC  | CV_SEQ_ELTYPE_CONNECTED_COMP)
 # sequence of the integer numbers
 CV_SEQ_INDEX           = (CV_SEQ_KIND_GENERIC  | CV_SEQ_ELTYPE_INDEX)
 
-CV_SEQ_ELTYPE( seq )   = ((seq)->flags & CV_SEQ_ELTYPE_MASK)
-CV_SEQ_KIND( seq )     = ((seq)->flags & CV_SEQ_KIND_MASK )
+# CV_SEQ_ELTYPE( seq )   = ((seq)->flags & CV_SEQ_ELTYPE_MASK)
+# CV_SEQ_KIND( seq )     = ((seq)->flags & CV_SEQ_KIND_MASK )
 
 #-----------------------------------------------------------------------------
 # Sequence writer & reader
@@ -1002,7 +1002,7 @@ CV_NODE_SEQ         = 5
 CV_NODE_MAP         = 6
 CV_NODE_TYPE_MASK   = 7
 
-CV_NODE_TYPE(flags)  = ((flags) & CV_NODE_TYPE_MASK)
+# CV_NODE_TYPE(flags)  = ((flags) & CV_NODE_TYPE_MASK)
 
 # file node flags
 CV_NODE_FLOW        = 8 # used only for writing structures to YAML format
@@ -1042,8 +1042,8 @@ class CvFileNode(_Structure):
 CvIsInstanceFunc = CFUNCTYPE(c_int, c_void_p)
 CvReleaseFunc = CFUNCTYPE(None, POINTER(c_void_p))
 CvReadFunc = CFUNCTYPE(c_void_p, POINTER(CvFileStorage), POINTER(CvFileNode))
-cvWriteFunc = CFUNCTYPE(None, POINTER(CvFileStorage), c_char_p, c_void_p, CvAttrList)
-cvCloneFunc = CFUNCTYPE(c_void_p, c_void_p)
+CvWriteFunc = CFUNCTYPE(None, POINTER(CvFileStorage), c_char_p, c_void_p, CvAttrList)
+CvCloneFunc = CFUNCTYPE(c_void_p, c_void_p)
 
 CvTypeInfo._fields_ = [
     ('flags', c_int),
@@ -1062,6 +1062,47 @@ CvTypeInfo._fields_ = [
 #=============================================================================
 # cxcore/cxcore.h
 #=============================================================================
+
+# Allocates memory buffer
+cvAlloc = cfunc('cvAlloc', _cxDLL, c_void_p,
+    ('size', c_ulong, 1), # size_t size 
+)
+cvAlloc.__doc__ = """void* cvAlloc(size_t size)
+
+Allocates memory buffer
+"""
+
+#Deallocates memory buffer
+#"""
+
+
+# Deallocates memory buffer
+#cvFree = _cxDLL.cvFree
+#cvFree.restype = None # void
+#cvFree.argtypes = [
+#    c_void_p # void** ptr
+#    ]
+
+#cvFree.__doc__ = """void cvFree(void** ptr)
+#
+
+# Assings custom/default memory managing functions
+#CvAllocFunc = CFUNCTYPE(c_void_p, # void*
+#    c_ulong, # size_t size
+#    c_void_p) # void* userdata
+#
+#CvFreeFunc = CFUNCTYPE(c_int, # int
+#    c_void_p, # void* pptr
+#    c_void_p) # void* userdata
+
+#cvSetMemoryManager = _cxDLL.cvSetMemoryManager
+#cvSetMemoryManager.restype = None # void
+#cvSetMemoryManager.argtypes = [
+#    CvAllocFunc, # CvAllocFunc alloc_func=NULL
+#    CvFreeFunc, # CvFreeFunc free_func=NULL
+#    c_void_p # void* userdata=NULL
+#    ]
+
 
 # here, to be updated soon
 
@@ -1559,7 +1600,7 @@ class CvMatrix3(_Structure):
     _fields_ = [('m', (c_float*3)*3)]
 
 # spatial and central moments
-class CvMOMENTS(_Structure):
+class CvMoments(_Structure):
     _fields_ = [
         # spatial moments
         ('m00', c_double),
@@ -3106,7 +3147,7 @@ cvSetSeqReaderPos = cfunc('cvSetSeqReaderPos', _cxDLL, None,
 # --- 2.3 Sets ---------------------------------------------------------------
 
 # Creates empty set
-cvCreateSet = cfunc('cvCreateSet', _cxDLL, POINTER(CvSET),
+cvCreateSet = cfunc('cvCreateSet', _cxDLL, POINTER(CvSet),
     ('set_flags', c_int, 1), # int set_flags
     ('header_size', c_int, 1), # int header_size
     ('elem_size', c_int, 1), # int elem_size
@@ -3115,20 +3156,20 @@ cvCreateSet = cfunc('cvCreateSet', _cxDLL, POINTER(CvSET),
 
 # Occupies a node in the set
 cvSetAdd = cfunc('cvSetAdd', _cxDLL, c_int,
-    ('set_header', POINTER(CvSET), 1), # CvSET* set_header
+    ('set_header', POINTER(CvSet), 1), # CvSet* set_header
     ('elem', POINTER(CvSetElem), 1, None), # CvSetElem* elem
     ('inserted_elem', POINTER(POINTER(CvSetElem)), 1, None), # CvSetElem** inserted_elem
 )
 
 # Removes element from set
 cvSetRemove = cfunc('cvSetRemove', _cxDLL, None,
-    ('set_header', POINTER(CvSET), 1), # CvSET* set_header
+    ('set_header', POINTER(CvSet), 1), # CvSet* set_header
     ('index', c_int, 1), # int index 
 )
 
 # Clears set
 cvClearSet = cfunc('cvClearSet', _cxDLL, None,
-    ('set_header', POINTER(CvSET), 1), # CvSET* set_header 
+    ('set_header', POINTER(CvSet), 1), # CvSet* set_header 
 )
 
 # --- 2.4 Graphs -------------------------------------------------------------
@@ -3670,7 +3711,7 @@ cvLoad = cfunc('cvLoad', _cxDLL, c_void_p,
 # Load and cast to given type
 def cvLoadCast(filename, ctype):
     '''Use cvLoad and then cast the result to ctype'''
-    return ctypes.cast(cvLoad(filename), ctypes.POINTER(ctype))
+    return cast(cvLoad(filename), POINTER(ctype))
 
 
 # --- 5 Miscellaneous Functions ----------------------------------------------
@@ -3786,18 +3827,6 @@ cvGuiBoxReport = cfunc('cvGuiBoxReport', _cxDLL, c_int,
 
 # --- 6.2 System and Utility Functions ---------------------------------------
 
-# Allocates memory buffer
-cvAlloc = cfunc('cvAlloc', _cxDLL, c_void_p,
-    ('size', c_ulong, 1), # size_t size 
-)
-
-# Deallocates memory buffer
-#cvFree = _cxDLL.cvFree
-#cvFree.restype = None # void
-#cvFree.argtypes = [
-#    c_void_p # void** ptr
-#    ]
-
 # Returns number of tics
 cvGetTickCount = cfunc('cvGetTickCount', _cxDLL, c_longlong,
 )
@@ -3822,23 +3851,6 @@ cvGetModuleInfo = cfunc('cvGetModuleInfo', _cxDLL, None,
 cvUseOptimized = cfunc('cvUseOptimized', _cxDLL, c_int,
     ('on_off', c_int, 1), # int on_off 
 )
-
-# Assings custom/default memory managing functions
-#CvAllocFunc = CFUNCTYPE(c_void_p, # void*
-#    c_ulong, # size_t size
-#    c_void_p) # void* userdata
-#
-#CvFreeFunc = CFUNCTYPE(c_int, # int
-#    c_void_p, # void* pptr
-#    c_void_p) # void* userdata
-
-#cvSetMemoryManager = _cxDLL.cvSetMemoryManager
-#cvSetMemoryManager.restype = None # void
-#cvSetMemoryManager.argtypes = [
-#    CvAllocFunc, # CvAllocFunc alloc_func=NULL
-#    CvFreeFunc, # CvFreeFunc free_func=NULL
-#    c_void_p # void* userdata=NULL
-#    ]
 
 # --- 1 Image Processing -----------------------------------------------------
 
@@ -4306,34 +4318,34 @@ cvEndFindContours = cfunc('cvEndFindContours', _cvDLL, POINTER(CvSeq),
 # Calculates all moments up to third order of a polygon or rasterized shape
 cvMoments = cfunc('cvMoments', _cvDLL, None,
     ('arr', CvArr_p, 1), # const CvArr* arr
-    ('moments', POINTER(CvMOMENTS), 1), # CvMoments* moments
+    ('moments', POINTER(CvMoments), 1), # CvMoments* moments
     ('binary', c_int, 1, 0), # int binary
 )
 
 # Retrieves spatial moment from moment state structure
 cvGetSpatialMoment = cfunc('cvGetSpatialMoment', _cvDLL, c_double,
-    ('moments', POINTER(CvMOMENTS), 1), # CvMoments* moments
+    ('moments', POINTER(CvMoments), 1), # CvMoments* moments
     ('x_order', c_int, 1), # int x_order
     ('y_order', c_int, 1), # int y_order 
 )
 
 # Retrieves central moment from moment state structure
 cvGetCentralMoment = cfunc('cvGetCentralMoment', _cvDLL, c_double,
-    ('moments', POINTER(CvMOMENTS), 1), # CvMoments* moments
+    ('moments', POINTER(CvMoments), 1), # CvMoments* moments
     ('x_order', c_int, 1), # int x_order
     ('y_order', c_int, 1), # int y_order 
 )
 
 # Retrieves normalized central moment from moment state structure
 cvGetNormalizedCentralMoment = cfunc('cvGetNormalizedCentralMoment', _cvDLL, c_double,
-    ('moments', POINTER(CvMOMENTS), 1), # CvMoments* moments
+    ('moments', POINTER(CvMoments), 1), # CvMoments* moments
     ('x_order', c_int, 1), # int x_order
     ('y_order', c_int, 1), # int y_order 
 )
 
 # Calculates seven Hu invariants
 cvGetHuMoments = cfunc('cvGetHuMoments', _cvDLL, None,
-    ('moments', POINTER(CvMOMENTS), 1), # CvMoments* moments
+    ('moments', POINTER(CvMoments), 1), # CvMoments* moments
     ('hu_moments', POINTER(CvHuMoments), 1), # CvHuMoments* hu_moments 
 )
 
@@ -4953,7 +4965,7 @@ def ChangeCvSeqToCvRect(result, func, args):
     res = []
     for i in xrange(result[0].total):
         f = cvGetSeqElem(result, i)
-        r = ctypes.cast(f, ctypes.POINTER(CvRect))[0]
+        r = cast(f, POINTER(CvRect))[0]
         res.append(r)
     return res
 cvHaarDetectObjects.errcheck = ChangeCvSeqToCvRect
@@ -5118,7 +5130,7 @@ cvComputeCorrespondEpilines = cfunc('cvComputeCorrespondEpilines', _cvDLL, None,
 )
 
 # Convert points to/from homogeneous coordinates
-cvConvertPointsHomogeneous = cfunc('cvConvertPointsHomogeneous', _cvDLL, None,
+cvConvertPointsHomogenious = cfunc('cvConvertPointsHomogenious', _cvDLL, None,
     ('src', POINTER(CvMat), 1), # const CvMat* src
     ('dst', POINTER(CvMat), 1), # CvMat* dst 
 )
@@ -5333,23 +5345,38 @@ cvConvertImage = cfunc('cvConvertImage', _hgDLL, None,
     ('flags', c_int, 1, 0), # int flags
 )
 
-# -- Helpers for access to images for other GUI packages
+# ----Begin of extra stuff of Minh-Tri Pham----------------------------------
+
+# Start a new thread in X Window
+cvStartWindowThread = cfunc('cvStartWindowThread', _hgDLL, c_int,
+)
+cvStartWindowThread.__doc__ = """int cvStartWindowThread()
+
+Starts a new thread for rendering in X Window
+"""
+
+# ----End of extra stuff of Minh-Tri Pham------------------------------------
+
+#=============================================================================
+# Helpers for access to images for other GUI packages
+#=============================================================================
 
 def cvImageAsString(img):
-    return ctypes.string_at(img[0].imageData, img[0].width*img[0].height*img[0].nChannels)
+    return string_at(img[0].imageData, img[0].imageSize)
+cvImageAsBuffer = cvImageAsString
 
 # Added by Minh-Tri Pham
 def cvCvMatAsBuffer(mat):
-    btype = ctypes.c_byte * mat[0].step * mat[0].rows
-    return buffer(btype.from_address(mat[0].data))
+    return string_at(mat[0].data.ptr, mat[0].step * mat[0].rows)
 
-def cvImageAsBuffer(img):
-    btype = ctypes.c_byte * img[0].imageSize
-    return buffer(btype.from_address(img[0].imageData))
+#-----------------------------------------------------------------------------
+# wx
+#-----------------------------------------------------------------------------
+try:
+    import wx
+    del(wx)
 
-def cvImageAsBitmap(img, flip=True):
-    try:
-        import wx
+    def cvImageAsBitmap(img, flip=True):
         sz = cvGetSize(img)
         flags = CV_CVTIMG_SWAP_RB
         if flip:
@@ -5357,8 +5384,95 @@ def cvImageAsBitmap(img, flip=True):
         cvConvertImage(img, img, flags)
         bitmap = wx.BitmapFromBuffer(sz.width, sz.height, cvImageAsBuffer(img))
         return bitmap
-    except ImportError:
-        pass
+except ImportError:
+    pass
+
+#-----------------------------------------------------------------------------
+# numpy's ndarray
+#-----------------------------------------------------------------------------
+
+try:
+    import numpy
+    del(numpy)
+    
+    _dict_opencvdepth2dtype = {
+        IPL_DEPTH_1U: 'bool',
+        IPL_DEPTH_8U: 'uint8',
+        IPL_DEPTH_8S: 'int8',
+        IPL_DEPTH_16U: 'uint16',
+        IPL_DEPTH_16S: 'int16',
+        IPL_DEPTH_32S: 'int32',
+        IPL_DEPTH_32F: 'float32',
+        IPL_DEPTH_64F: 'float64',
+    }
+
+    def cvIplImageAsNDarray(img):
+        """Convert a POINTER(IplImage) into ndarray
+        
+        Input:
+            img: a POINTER(IplImage)
+        Output:
+            img2: an ndarray
+        """
+        if not isinstance(img,POINTER(IplImage)):
+            raise TypeError('img is not of type POINTER(IplImage)')
+            
+        from numpy import frombuffer, dtype
+        
+        dtypename = _dict_opencvdepth2dtype[img.contents.depth]
+        data = frombuffer(cvImageAsBuffer(img),dtype=dtypename)
+        
+        w = img.contents.width
+        ws = img.contents.widthStep / dtype(dtypename).itemsize
+        h = img.contents.height
+        nc = img.contents.nChannels
+
+        if nc > 1:
+            return data.reshape(h,ws)[:,:w*nc].reshape(h,w,nc)
+        else:
+            return data.reshape(h,ws)[:,:w]
+
+    _dict_opencvmat2dtype = {
+        CV_8U: 'uint8',
+        CV_8S: 'int8',
+        CV_16U: 'uint16',
+        CV_16S: 'int16',
+        CV_32S: 'int32',
+        CV_32F: 'float32',
+        CV_64F: 'float64',
+    }
+
+    def cvCvMatAsNDarray(mat):
+        """Convert a POINTER(CvMat) into ndarray
+
+        Input:
+            mat: a POINTER(CvMat)
+        Output:
+            mat2: an ndarray
+        """
+        if not isinstance(mat,POINTER(CvMat)):
+            raise TypeError('mat is not of type POINTER(CvMat)')
+
+        from numpy import frombuffer, dtype
+        
+        typedepth = mat[0].type & 0x0FFF
+        thetype = typedepth & ((1 << CV_CN_SHIFT)-1)
+        nc = (typedepth >> CV_CN_SHIFT) + 1
+        dtypename = _dict_opencvmat2dtype[thetype]
+        data = frombuffer(cvCvMatAsBuffer(mat),dtype=dtypename)
+
+        w = mat[0].cols
+        ws = mat[0].step / dtype(dtypename).itemsize
+        h = mat[0].rows
+
+        if nc > 1:
+            return data.reshape(h,ws)[:,:w*nc].reshape(h,w,nc)
+        else:
+            return data.reshape(h,ws)[:,:w]
+
+    
+except ImportError:
+    pass
 
 # --- Dokumentationsstrings --------------------------------------------------
 
@@ -6107,22 +6221,22 @@ cvSetSeqReaderPos.__doc__ = """void cvSetSeqReaderPos(CvSeqReader* reader, int i
 Moves the reader to specified position
 """
 
-cvCreateSet.__doc__ = """CvSET* cvCreateSet(int set_flags, int header_size, int elem_size, CvMemStorage* storage)
+cvCreateSet.__doc__ = """CvSet* cvCreateSet(int set_flags, int header_size, int elem_size, CvMemStorage* storage)
 
 Creates empty set
 """
 
-cvSetAdd.__doc__ = """int cvSetAdd(CvSET* set_header, CvSetElem* elem=NULL, CvSetElem** inserted_elem=NULL)
+cvSetAdd.__doc__ = """int cvSetAdd(CvSet* set_header, CvSetElem* elem=NULL, CvSetElem** inserted_elem=NULL)
 
 Occupies a node in the set
 """
 
-cvSetRemove.__doc__ = """void cvSetRemove(CvSET* set_header, int index)
+cvSetRemove.__doc__ = """void cvSetRemove(CvSet* set_header, int index)
 
 Removes element from set
 """
 
-cvClearSet.__doc__ = """void cvClearSet(CvSET* set_header)
+cvClearSet.__doc__ = """void cvClearSet(CvSet* set_header)
 
 Clears set
 """
@@ -6507,16 +6621,6 @@ cvNulDevReport.__doc__ = """int cvNulDevReport(int status, const char* func_name
 Provide standard error handling
 """
 
-cvAlloc.__doc__ = """void* cvAlloc(size_t size)
-
-Allocates memory buffer
-"""
-
-#cvFree.__doc__ = """void cvFree(void** ptr)
-#
-#Deallocates memory buffer
-#"""
-
 cvGetTickCount.__doc__ = """int64 cvGetTickCount(void)
 
 Returns number of tics
@@ -6748,27 +6852,27 @@ cvEndFindContours.__doc__ = """CvSeq* cvEndFindContours(CvContourScanner* scanne
 Finishes scanning process
 """
 
-cvMoments.__doc__ = """void cvMoments(const CvArr* arr, CvMOMENTS* moments, int binary=0)
+cvMoments.__doc__ = """void cvMoments(const CvArr* arr, CvMoments* moments, int binary=0)
 
 Calculates all moments up to third order of a polygon or rasterized shape
 """
 
-cvGetSpatialMoment.__doc__ = """double cvGetSpatialMoment(CvMOMENTS* moments, int x_order, int y_order)
+cvGetSpatialMoment.__doc__ = """double cvGetSpatialMoment(CvMoments* moments, int x_order, int y_order)
 
 Retrieves spatial moment from moment state structure
 """
 
-cvGetCentralMoment.__doc__ = """double cvGetCentralMoment(CvMOMENTS* moments, int x_order, int y_order)
+cvGetCentralMoment.__doc__ = """double cvGetCentralMoment(CvMoments* moments, int x_order, int y_order)
 
 Retrieves central moment from moment state structure
 """
 
-cvGetNormalizedCentralMoment.__doc__ = """double cvGetNormalizedCentralMoment(CvMOMENTS* moments, int x_order, int y_order)
+cvGetNormalizedCentralMoment.__doc__ = """double cvGetNormalizedCentralMoment(CvMoments* moments, int x_order, int y_order)
 
 Retrieves normalized central moment from moment state structure
 """
 
-cvGetHuMoments.__doc__ = """void cvGetHuMoments(CvMOMENTS* moments, CvHuMoments* hu_moments)
+cvGetHuMoments.__doc__ = """void cvGetHuMoments(CvMoments* moments, CvHuMoments* hu_moments)
 
 Calculates seven Hu invariants
 """
@@ -7208,7 +7312,7 @@ cvComputeCorrespondEpilines.__doc__ = """void cvComputeCorrespondEpilines(const 
 For points in one image of stereo pair computes the corresponding epilines in the other image
 """
 
-cvConvertPointsHomogeneous.__doc__ = """void cvConvertPointsHomogeneous(const CvMat* src, CvMat* dst)
+cvConvertPointsHomogenious.__doc__ = """void cvConvertPointsHomogenious(const CvMat* src, CvMat* dst)
 
 Convert points to/from homogeneous coordinates
 """
@@ -7366,95 +7470,15 @@ cvDrawEllipse = cvEllipse
 cvDrawPolyLine = cvPolyLine
 
 
+#=============================================================================
+# Wrap up all the functions and constants into __all__
+#=============================================================================
+__all__ = [x for x in locals().keys() \
+    if  x.startswith('CV') or \
+        x.startswith('cv') or \
+        x.startswith('IPL') or \
+        x.startswith('ipl')]
 
-# ----Begin of extra stuff of Minh-Tri Pham----------------------------------
-class CvRECT:
-    x = 0
-    y = 0
-    w = 0
-    h = 0
-    def __init__(self,x,y,w,h):
-        self.x = x
-        self.y = y
-        self.w = w
-        self.h = h
-
-def cvResizeSubRect(src_img, dst_img, rect):
-    """Resize a sub-rect on the source image into the destination image.
-
-    :Parameters:
-        src_img : IplImage
-            source image
-        dst_img : IplImage
-            destination image
-        rect : CvRECT
-            the rectangle of interest
-
-    :Returns:
-        nothing
-
-    :Remarks:
-        For interpolation, nearest-neighbor is used.
-        For outliers, a black value is used.
-        Source and destination images must have the same depth and number of
-        channels.
-    """
-    # temporarily allocate a map matrix
-    map_matrix = cvCreateMat(2,3,CV_64FC1)
-
-    # get the transformation matrix
-    C3 = CvPoint2D32f * 3
-    src = C3((rect.x,rect.y),(rect.x+rect.w,rect.y),(rect.x,rect.y+rect.h))
-    dst = C3((0,0),(dst_img.contents.width,0),(0,dst_img.contents.height))
-    cvGetAffineTransform(src,dst,map_matrix)
-
-    # warp affine
-    cvWarpAffine(src_img,dst_img,map_matrix,
-        CV_INTER_NN+CV_WARP_FILL_OUTLIERS,CvScalar(0,0,0,0))
-
-    # release the allocated matrix
-    cvReleaseMat(map_matrix)
-
-
-# Start a new thread in X Window
-cvStartWindowThread = cfunc('cvStartWindowThread', _hgDLL, c_int,
-)
-cvStartWindowThread.__doc__ = """int cvStartWindowThread()
-
-Starts a new thread for rendering in X Window
-"""
-
-
-
-# ----End of extra stuff of Minh-Tri Pham------------------------------------
-
-
-
-# wrapup all the functions into a single object so we can say
-# from OpenCV import cv
-# cv.Foo instead of OpenCV.cvFoo
-class namespace:
-    pass
-nsp = namespace()
-
-mdict = locals()
-for sym, val in mdict.items():
-    if sym.startswith('CV_'):
-        sname = sym[3:]
-        if sname == 'SVD':
-            sname = '_SVD'
-    elif sym.startswith('cv'):
-        sname = sym[2:]
-    elif sym.startswith('Cv'):
-        sname = sym[2:]
-    else:
-        continue
-    if not hasattr(nsp, sname):
-        setattr(nsp, sname, val)
-    else:
-        print 'name collision', sname, getattr(nsp, sname)
-
-cv = nsp
 
 # --- Hauptprogramm ----------------------------------------------------------
 
