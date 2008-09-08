@@ -5,18 +5,13 @@
 # Copyright (c) 2008, Minh-Tri Pham
 # All rights reserved.
 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
+#    * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#    * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#    * Neither the name of ctypes-opencv's copyright holders nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # For further inquiries, please contact Minh-Tri Pham at pmtri80@gmail.com.
 # ---------------------------------------------------------------------
@@ -63,6 +58,8 @@ Change Log
 ctypes-opencv-0.2.0 stable release
 ----------------------------------
 
+- Encapsulated cxcore/cxtypes.h
+- Encapsulated cxcore/cvver.h
 - Imported from the improved CVtypes.py file in my pycv package
 
 Notes from former contributors
@@ -97,17 +94,13 @@ Continuously updated by Minh-Tri Pham since 30 June 2007
 # --- Importe ----------------------------------------------------------------
 
 import ctypes, os, sys
-from ctypes import Structure, Union, POINTER, SetPointerType, CFUNCTYPE, cdll, byref, sizeof
-from ctypes import c_char_p, c_double, c_float, c_byte, c_ubyte, c_int, c_void_p, c_ulong
-from ctypes import c_uint, c_uint32, c_uint64, c_short, c_char, c_longlong
+from ctypes import *
 
 # Added by Minh-Tri Pham
 c_int_p = POINTER(c_int)
 c_float_p = POINTER(c_float)
 c_double_p = POINTER(c_double)
-CvArr_p = c_void_p
 size_t = c_uint
-CvRNG = c_uint64
 
 import math
 # ----Load the DLLs ----------------------------------------------------------
@@ -135,7 +128,948 @@ elif os.name == 'nt':
         raise ImportError("Cannot import OpenCV's .DLL files. Make sure you have their path included in your PATH variable.")
 else:
     raise NotImplemented
+    
+#------
 
+# make function prototypes a bit easier to declare
+def cfunc(name, dll, result, *args):
+    '''build and apply a ctypes prototype complete with parameter flags
+    e.g.
+cvMinMaxLoc = cfunc('cvMinMaxLoc', _cxDLL, None,
+                    ('image', POINTER(IplImage), 1),
+                    ('min_val', POINTER(double), 2),
+                    ('max_val', POINTER(double), 2),
+                    ('min_loc', POINTER(CvPoint), 2),
+                    ('max_loc', POINTER(CvPoint), 2),
+                    ('mask', POINTER(IplImage), 1, None))
+means locate cvMinMaxLoc in dll _cxDLL, it returns nothing.
+The first argument is an input image. The next 4 arguments are output, and the last argument is
+input with an optional value. A typical call might look like:
+
+min_val,max_val,min_loc,max_loc = cvMinMaxLoc(img)
+    '''
+    atypes = []
+    aflags = []
+    for arg in args:
+        atypes.append(arg[1])
+        aflags.append((arg[2], arg[0]) + arg[3:])
+    return CFUNCTYPE(result, *atypes)((name, dll), tuple(aflags))
+
+# hack the ctypes.Structure class to include printing the fields
+class _Structure(_Structure):
+    def __repr__(self):
+        '''Print the fields'''
+        res = []
+        for field in self._fields_:
+            res.append('%s=%s' % (field[0], repr(getattr(self, field[0]))))
+        return self.__class__.__name__ + '(' + ','.join(res) + ')'
+    @classmethod
+    def from_param(cls, obj):
+        '''Magically construct from a tuple'''
+        if isinstance(obj, cls):
+            return obj
+        if isinstance(obj, tuple):
+            return cls(*obj)
+        raise TypeError
+
+#=============================================================================
+# Begin of modification + addition by Minh-Tri Pham
+#=============================================================================
+
+#=============================================================================
+# cxcore/cvver.h
+#=============================================================================
+
+CV_MAJOR_VERSION    = 1
+CV_MINOR_VERSION    = 0
+CV_SUBMINOR_VERSION = 0
+CV_VERSION          = "1.0.0"
+
+
+#=============================================================================
+# cxcore/cxtypes.h
+#=============================================================================
+
+CvArr_p = c_void_p
+
+class Cv32suf(Union):
+    _fields_ = [
+        ('i', c_int32),
+        ('u', c_uint32),
+        ('f', c_float),
+    ]
+
+class Cv64suf(Union):
+    _fields_ = [
+        ('i', c_int64),
+        ('u', c_uint64),
+        ('f', c_double),
+    ]
+
+
+#-----------------------------------------------------------------------------
+# Common macros and inline functions
+#-----------------------------------------------------------------------------
+
+CV_PI = math.pi
+CV_LOG2 = 0.69314718055994530941723212145818
+
+# Round to nearest integer
+def cvRound(val):
+    return int(val + 0.5)
+
+#-----------------------------------------------------------------------------
+# Random number generation
+#-----------------------------------------------------------------------------
+
+CvRNG = c_uint64
+
+#-----------------------------------------------------------------------------
+# Image type (IplImage)
+#-----------------------------------------------------------------------------
+
+# Image type (IplImage)
+IPL_DEPTH_SIGN = 0x80000000
+
+IPL_DEPTH_1U =  1
+IPL_DEPTH_8U =  8
+IPL_DEPTH_16U = 16
+IPL_DEPTH_32F = 32
+IPL_DEPTH_64F = 64
+
+
+IPL_DEPTH_8S = IPL_DEPTH_SIGN + IPL_DEPTH_8U
+IPL_DEPTH_16S = IPL_DEPTH_SIGN + IPL_DEPTH_16U
+IPL_DEPTH_32S = IPL_DEPTH_SIGN + 32
+
+IPL_DATA_ORDER_PIXEL = 0
+IPL_DATA_ORDER_PLANE = 1
+
+IPL_ORIGIN_TL = 0
+IPL_ORIGIN_BL = 1
+
+IPL_ALIGN_4BYTES = 4
+IPL_ALIGN_8BYTES = 8
+IPL_ALIGN_16BYTES = 16
+IPL_ALIGN_32BYTES = 32
+
+IPL_ALIGN_DWORD = IPL_ALIGN_4BYTES
+IPL_ALIGN_QWORD = IPL_ALIGN_8BYTES
+
+IPL_BORDER_CONSTANT = 0
+IPL_BORDER_REPLICATE = 1
+IPL_BORDER_REFLECT = 2
+IPL_BORDER_WRAP = 3
+
+class IplTileInfo(_Structure):
+    _fields_ = []
+
+class IplROI(_Structure):
+    _fields_ = [
+        ('coi', c_int), # 0 - no COI (all channels are selected), 1 - 0th channel is selected ...
+        ('xOffset', c_int),
+        ('yOffset', c_int),
+        ('width', c_int),
+        ('height', c_int),
+    ]
+
+class IplConvKernel(_Structure):
+    _fields_ = [
+        ('nCols', c_int),
+        ('nRows', c_int),
+        ('anchorX', c_int),
+        ('anchorY', c_int),
+        ('values', c_int_p),
+        ('nShiftR', c_int),
+    ]
+
+class IplConvKernelFP(_Structure):
+    _fields_ = [
+        ('nCols', c_int),
+        ('nRows', c_int),
+        ('anchorX', c_int),
+        ('anchorY', c_int),
+        ('values', c_int_p),
+    ]
+
+IPL_IMAGE_HEADER = 1
+IPL_IMAGE_DATA = 2
+IPL_IMAGE_ROI = 4
+
+IPL_BORDER_REFLECT_101    = 4
+
+# IPL image header
+class IplImage(_Structure):
+    def __repr__(self):
+        '''Print the fields'''
+        res = []
+        for field in self._fields_:
+            if field[0] in ['imageData', 'imageDataOrigin']: continue
+            res.append('%s=%s' % (field[0], repr(getattr(self, field[0]))))
+        return self.__class__.__name__ + '(' + ','.join(res) + ')'
+
+IplImage._fields_ = [("nSize", c_int),
+        ("ID", c_int),
+        ("nChannels", c_int),
+        ("alphaChannel", c_int),
+        ("depth", c_int),
+        ("colorModel", c_char * 4),
+        ("channelSeq", c_char * 4),
+        ("dataOrder", c_int),
+        ("origin", c_int),
+        ("align", c_int),
+        ("width", c_int),
+        ("height", c_int),
+        ("roi", POINTER(IplROI)),
+        ("maskROI", POINTER(IplImage)),
+        ("imageID", c_void_p),
+        ("tileInfo", POINTER(IplTileInfo)),
+        ("imageSize", c_int),
+        ("imageData", c_char_p),
+        ("widthStep", c_int),
+        ("BorderMode", c_int * 4),
+        ("BorderConst", c_int * 4),
+        ("imageDataOrigin", c_char_p)]
+
+CV_TYPE_NAME_IMAGE = "opencv-image"
+
+#-----------------------------------------------------------------------------
+# CvSlice
+#-----------------------------------------------------------------------------
+
+class CvSlice(_Structure):
+    _fields_ = [('start_index', c_int),
+                ('end_index', c_int)]
+
+def cvSlice(start, end):
+    """CvSlice cvSlice(int start, int end)
+    
+    Constructs a CvSlice
+    """
+    return CvSlice(c_int(start), c_int(end))
+    
+#Viji Periapoilan 5/23/2007(start)
+CV_WHOLE_SEQ_END_INDEX = 0x3fffffff
+CV_WHOLE_SEQ = CvSlice(0, CV_WHOLE_SEQ_END_INDEX)
+
+#Viji Periapoilan 5/23/2007(end)
+
+#-----------------------------------------------------------------------------
+# Matrix type (CvMat) 
+#-----------------------------------------------------------------------------
+
+# Matrix type (CvMat)
+CV_CN_MAX = 4
+CV_CN_SHIFT = 3
+CV_DEPTH_MAX = (1 << CV_CN_SHIFT)
+
+CV_8U = 0
+CV_8S = 1
+CV_16U = 2
+CV_16S = 3
+CV_32S = 4
+CV_32F = 5
+CV_64F = 6
+CV_USRTYPE1 = 7
+
+def CV_MAKETYPE(depth,cn):
+    return ((depth) + (((cn)-1) << CV_CN_SHIFT))
+CV_MAKE_TYPE = CV_MAKETYPE
+
+CV_8UC1 = CV_MAKETYPE(CV_8U,1)
+CV_8UC2 = CV_MAKETYPE(CV_8U,2)
+CV_8UC3 = CV_MAKETYPE(CV_8U,3)
+CV_8UC4 = CV_MAKETYPE(CV_8U,4)
+
+CV_8SC1 = CV_MAKETYPE(CV_8S,1)
+CV_8SC2 = CV_MAKETYPE(CV_8S,2)
+CV_8SC3 = CV_MAKETYPE(CV_8S,3)
+CV_8SC4 = CV_MAKETYPE(CV_8S,4)
+
+CV_16UC1 = CV_MAKETYPE(CV_16U,1)
+CV_16UC2 = CV_MAKETYPE(CV_16U,2)
+CV_16UC3 = CV_MAKETYPE(CV_16U,3)
+CV_16UC4 = CV_MAKETYPE(CV_16U,4)
+
+CV_16SC1 = CV_MAKETYPE(CV_16S,1)
+CV_16SC2 = CV_MAKETYPE(CV_16S,2)
+CV_16SC3 = CV_MAKETYPE(CV_16S,3)
+CV_16SC4 = CV_MAKETYPE(CV_16S,4)
+
+CV_32SC1 = CV_MAKETYPE(CV_32S,1)
+CV_32SC2 = CV_MAKETYPE(CV_32S,2)
+CV_32SC3 = CV_MAKETYPE(CV_32S,3)
+CV_32SC4 = CV_MAKETYPE(CV_32S,4)
+
+CV_32FC1 = CV_MAKETYPE(CV_32F,1)
+CV_32FC2 = CV_MAKETYPE(CV_32F,2)
+CV_32FC3 = CV_MAKETYPE(CV_32F,3)
+CV_32FC4 = CV_MAKETYPE(CV_32F,4)
+
+CV_64FC1 = CV_MAKETYPE(CV_64F,1)
+CV_64FC2 = CV_MAKETYPE(CV_64F,2)
+CV_64FC3 = CV_MAKETYPE(CV_64F,3)
+CV_64FC4 = CV_MAKETYPE(CV_64F,4)
+
+CV_AUTO_STEP = 0x7fffffff
+CV_WHOLE_ARR  = cvSlice( 0, 0x3fffffff )
+
+CV_MAT_CN_MASK = ((CV_CN_MAX - 1) << CV_CN_SHIFT)
+def CV_MAT_CN(flags):
+    return ((((flags) & CV_MAT_CN_MASK) >> CV_CN_SHIFT) + 1)
+CV_MAT_DEPTH_MASK = (CV_DEPTH_MAX - 1)
+def CV_MAT_DEPTH(flags):
+    return ((flags) & CV_MAT_DEPTH_MASK)
+CV_MAT_TYPE_MASK = (CV_DEPTH_MAX*CV_CN_MAX - 1)
+def CV_MAT_TYPE(flags):
+    ((flags) & CV_MAT_TYPE_MASK)
+CV_MAT_CONT_FLAG_SHIFT = 9
+CV_MAT_CONT_FLAG = (1 << CV_MAT_CONT_FLAG_SHIFT)
+def CV_IS_MAT_CONT(flags):
+    return ((flags) & CV_MAT_CONT_FLAG)
+CV_IS_CONT_MAT = CV_IS_MAT_CONT
+CV_MAT_TEMP_FLAG_SHIFT = 10
+CV_MAT_TEMP_FLAG = (1 << CV_MAT_TEMP_FLAG_SHIFT)
+def CV_IS_TEMP_MAT(flags):
+    return ((flags) & CV_MAT_TEMP_FLAG)
+
+CV_MAGIC_MASK = 0xFFFF0000
+CV_MAT_MAGIC_VAL = 0x42420000
+CV_TYPE_NAME_MAT = "opencv-matrix"
+
+class CvMatData(Union):
+    _fields_ = [
+        ('ptr', POINTER(c_ubyte)),
+        ('s', POINTER(c_short)),
+        ('i', c_int_p),
+        ('fl', c_float_p),
+        ('db', c_double_p),
+    ]
+    
+# Multi-channel matrix
+class CvMat(_Structure):
+    _fields_ = [("type", c_int),
+                ("step", c_int),
+                ("refcount", c_void_p),
+                ("hdr_refcount", c_int),
+                ("data", CvMatData),
+                ("rows", c_int),
+                ("cols", c_int)]
+
+#-----------------------------------------------------------------------------
+# Multi-dimensional dense array (CvMatND)
+#-----------------------------------------------------------------------------
+
+CV_MATND_MAGIC_VAL    = 0x42430000
+CV_TYPE_NAME_MATND    = "opencv-nd-matrix"
+
+CV_MAX_DIM = 32
+CV_MAX_DIM_HEAP = (1 << 16)
+
+# Multi-dimensional dense multi-channel matrix
+class CvMatNDdim(_Structure):
+    _fields_ = [("size", c_int),
+                ("step", c_int)]
+class CvMatND(_Structure):
+    _fields_ = [("type", c_int),
+                ("dims", c_int),
+                ("refcount", c_void_p),
+                ("data", CvMatData),
+                ("dim", CvMatNDdim*CV_MAX_DIM)]
+
+#-----------------------------------------------------------------------------
+# Sequence
+#-----------------------------------------------------------------------------
+
+class CvSeqBlock(_Structure): # forward declaration
+    pass
+CvSeqBlock._fields_ = [
+    ('prev', POINTER(CvSeqBlock)), # previous sequence block
+    ('next', POINTER(CvSeqBlock)), # next sequence block
+    ('start_index', c_int), # index of the first element in the block + sequence->first->start_index
+    ('count', c_int), # number of elements in the block
+    ('data', c_char_p), # pointer to the first element of the block
+]
+
+def CV_TREE_NODE_FIELDS(node_type):
+    return [
+        ('flags', c_int), # micsellaneous flags
+        ('header_size', c_int), # size of sequence header
+        ('h_prev', POINTER(node_type)), # previous sequence
+        ('h_next', POINTER(node_type)), # next sequence
+        ('v_prev', POINTER(node_type)), # 2nd previous sequence
+        ('v_next', POINTER(node_type)), # 2nd next sequence
+    ]
+
+class CvSeq(_Structure): # forward declaration
+    pass
+    
+def CV_SEQUENCE_FIELDS():
+    return CV_TREE_NODE_FIELDS(CvSeq) + [
+        ('total', c_int), # total number of elements
+        ('elem_size', c_int), # size of sequence element in bytes
+        ('block_max', c_char_p), # maximal bound of the last block
+        ('ptr', c_char_p), # current write pointer
+        ('delta_elems', c_int), # how many elements allocated when the seq grows
+        ('storage', POINTER(CvMemStorage)), # where the seq is stored
+        ('free_blocks', POINTER(CvSeqBlock)), # free blocks list
+        ('first', POINTER(CvSeqBlock)), # pointer to the first sequence block
+    ]
+
+# Sequence
+CvSeq._fields_ = CV_SEQUENCE_FIELDS()
+
+CV_TYPE_NAME_SEQ             = "opencv-sequence"
+CV_TYPE_NAME_SEQ_TREE        = "opencv-sequence-tree"
+
+#-----------------------------------------------------------------------------
+# Set, CvSet is renamed as CvSET to avoid a naming conflict
+#-----------------------------------------------------------------------------
+
+class CvSetElem(_Structure):
+    pass
+CvSetElem._fields_ = [
+    ('flags', c_int),
+    ('next_free', POINTER(CvSetElem))]
+    
+def CV_SET_FIELDS():
+    return CV_SEQUENCE_FIELDS() + [
+        ('free_elems', POINTER(CvSetElem)),
+        ('active_count', c_int),
+    ]
+
+class CvSET(_Structure):
+    _fields_ = CV_SET_FIELDS()
+
+CV_SET_ELEM_IDX_MASK   = ((1 << 26) - 1)
+CV_SET_ELEM_FREE_FLAG  = (1 << (sizeof(c_int)*8-1))
+
+#-----------------------------------------------------------------------------
+# Multi-dimensional sparse array (CvSparseMat) 
+#-----------------------------------------------------------------------------
+
+CV_SPARSE_MAT_MAGIC_VAL    = 0x42440000
+CV_TYPE_NAME_SPARSE_MAT    = "opencv-sparse-matrix"
+
+class CvSparseMat(_Structure):
+    _fields_ = [('type', c_int),
+                ('dims', c_int),
+                ('refcount', c_int_p),
+                ('hdr_refcount', c_int),
+                ('heap', POINTER(CvSET)),
+                ('hashtable', POINTER(c_void_p)),
+                ('hashsize', c_int),
+                ('valoffset', c_int),
+                ('idxoffset', c_int),
+                ('size', c_int * CV_MAX_DIM)]
+
+class CvSparseNode(_Structure):
+    pass
+CvSparseNode._fields_ = [
+        ('hashval', c_uint),
+        ('next', POINTER(CvSparseNode))
+    ]
+
+class CvSparseMatIterator(_Structure):
+    _fields_ = [
+        ('mat', POINTER(CvSparseMat)),
+        ('node', POINTER(CvSparseNode)),
+    ]
+
+#-----------------------------------------------------------------------------
+# Histogram
+#-----------------------------------------------------------------------------
+
+CvHistType = c_int
+
+CV_HIST_MAGIC_VAL     = 0x42450000
+CV_HIST_UNIFORM_FLAG  = (1 << 10)
+
+CV_HIST_RANGES_FLAG   = (1 << 11)
+
+CV_HIST_ARRAY         = 0
+CV_HIST_SPARSE        = 1
+CV_HIST_TREE          = CV_HIST_SPARSE
+
+CV_HIST_UNIFORM       = 1
+
+class CvHistogram(_Structure):
+    _fields_ = [('type', c_int),
+                ('bins', c_void_p),
+                ('thresh', (c_float*2)*CV_MAX_DIM), # for uniform histograms
+                ('thresh2', POINTER(c_float_p)), # for non-uniform histograms
+                ('mat', CvMatND)] # embedded matrix header for array histograms
+    
+#-----------------------------------------------------------------------------
+# CvRect
+#-----------------------------------------------------------------------------
+
+# offset and size of a rectangle
+class CvRect(_Structure):
+    _fields_ = [("x", c_int),
+                ("y", c_int),
+                ("width", c_int),
+                ("height", c_int)]
+    def bloat(self, s):
+        return CvRect(self.x-s, self.y-s, self.width+2*s, self.height+2*s)
+
+def cvRect(x, y, width, height):
+    return CvRect(c_int(x), c_int(y), c_int(width), c_int(height))
+    
+def cvRectToROI(rect, coi):
+    """IplROI cvRectToROI(CvRect rect, int coi)
+    
+    Converts from CvRect to IplROI
+    """
+    return IplROI(coi, rect.x, rect.y, rect.width, rect.height)
+    
+def cvROIToRect(roi):
+    """CvRect cvROIToRect(IplROI roi)
+    
+    Converts from IplROI to CvRect
+    """
+    return CvRect(roi.xOffset, roi.yOffset, roi.width, roi.height)
+    
+#-----------------------------------------------------------------------------
+# CvTermCriteria
+#-----------------------------------------------------------------------------
+
+CV_TERMCRIT_ITER    = 1
+CV_TERMCRIT_NUMBER  = CV_TERMCRIT_ITER
+CV_TERMCRIT_EPS     = 2
+
+# Termination criteria for iterative algorithms
+class CvTermCriteria(_Structure):
+    _fields_ = [("type", c_int),
+                ("max_iter", c_int),
+                ("epsilon", c_double)]
+
+def cvTermCriteria(type, max_iter, epsilon):
+    return CvTermCriteria(c_int(type), c_int(max_iter), c_double(epsilon))
+    
+#-----------------------------------------------------------------------------
+# CvPoint and variants
+#-----------------------------------------------------------------------------
+
+# 2D point with integer coordinates
+class CvPoint(_Structure):
+    _fields_ = [("x", c_int),
+                ("y", c_int)]
+                
+def cvPoint(x, y):
+    return CvPoint(c_int(x), c_int(y))
+
+# 2D point with floating-point coordinates
+class CvPoint2D32f(_Structure):
+    _fields_ = [("x", c_float),
+                ("y", c_float)]
+                
+def cvPoint2D32f(x, y):
+    return CvPoint2D32f(c_float(x), c_float(y))
+
+# 3D point with floating-point coordinates
+class CvPoint3D32f(_Structure):
+    _fields_ = [("x", c_float),
+                ("y", c_float),
+                ("z", c_float)]
+
+def cvPoint3D32f(x, y, z):
+    return CvPoint3D32f(c_float(x), c_float(y), c_float(z))
+
+# 2D point with double precision floating-point coordinates
+class CvPoint2D64f(_Structure):
+    _fields_ = [("x", c_double),
+                ("y", c_double)]
+CvPoint2D64d = CvPoint2D64f
+
+def cvPoint2D64f(x, y):
+    return CvPoint2D64f(float(x), float(y))
+cvPoint2D64d = cvPoint2D64f
+
+# 3D point with double precision floating-point coordinates
+class CvPoint3D64f(_Structure):
+    _fields_ = [("x", c_double),
+                ("y", c_double),
+                ("z", c_double)]
+CvPoint3D64d = CvPoint3D64f
+
+def cvPoint3D64f(x, y, z):
+    return CvPoint3D64f(float(x), float(y), float(z))
+cvPoint3D64d = cvPoint3D64f
+    
+#-----------------------------------------------------------------------------
+# CvSize's & CvBox
+#-----------------------------------------------------------------------------
+
+# pixel-accurate size of a rectangle
+class CvSize(_Structure):
+    _fields_ = [("width", c_int),
+                ("height", c_int)]
+
+def cvSize(x, y):
+    return CvSize(c_int(x), c_int(y))
+
+# sub-pixel accurate size of a rectangle
+class CvSize2D32f(_Structure):
+    _fields_ = [("width", c_float),
+                ("height", c_float)]
+
+def cvSize2D32f(x, y):
+    return CvSize2D32f(c_float(x), c_float(y))
+
+class CvBox2D(_Structure):
+    _fields_ = [('center', CvPoint2D32f),
+                ('size', CvSize2D32f),
+                ('angle', c_float)]
+
+class CvLineIterator(_Structure):
+    _fields_ = [
+        ('ptr', POINTER(c_ubyte)), # pointer to the current point
+        ('err', c_int),
+        ('plus_delta', c_int),
+        ('minus_delta', c_int),
+        ('plus_step', c_int),
+        ('minus_step', c_int),        
+    ]
+    
+#-----------------------------------------------------------------------------
+# CvScalar
+#-----------------------------------------------------------------------------
+
+# A container for 1-,2-,3- or 4-tuples of numbers
+class CvScalar(_Structure):
+    _fields_ = [("val", c_double * 4)]
+    def __init__(self, *vals):
+        '''Enable initialization with multiple parameters instead of just a tuple'''
+        if len(vals) == 1:
+            super(CvScalar, self).__init__((vals[0],0,0,0))
+            # super(CvScalar, self).__init__(vals[0])
+        else:
+            super(CvScalar, self).__init__(vals)
+
+def cvScalar(val0, val1=0, val2=0, val3=0):
+    return CvScalar(val0, val1, val2, val3)
+    
+def cvRealScalar(val0):
+    return CvScalar(val0)
+    
+def cvScalarAll(val0123):
+    val0123 = c_double(val0123)
+    return CvScalar(val0123, val0123, val0123, val0123)
+    
+#-----------------------------------------------------------------------------
+# Memory storage
+#-----------------------------------------------------------------------------
+
+class CvMemBlock(_Structure): # forward declaration
+    pass
+CvMemBlock._fields_ = [
+    ('prev', POINTER(CvMemBlock)),
+    ('next', POINTER(CvMemBlock)),
+]
+
+CV_STORAGE_MAGIC_VAL = 0x42890000
+
+# Memory storage
+class CvMemStorage(_Structure): # forward declaration
+    pass
+CvMemStorage._fields_ = [
+    ("signature", c_int),
+    ("bottom", POINTER(CvMemBlock)), # first allocated block
+    ("top", POINTER(CvMemBlock)), # current memory block - top of the stack
+    ("parent", POINTER(CvMemStorage)), # borrows new blocks from
+    ("block_size", c_int), # block size
+    ("free_space", c_int)] # free space in the current block
+
+class CvMemStoragePos(_Structure):
+    _fields_ = [('top', POINTER(CvMemBlock)),
+                ('free_space', c_int)]
+    
+#-----------------------------------------------------------------------------
+# Graph
+#-----------------------------------------------------------------------------
+
+# Graph
+class CvGraphEdge(_Structure): # forward declaration
+    pass
+    
+class CvGraphVtx(_Structure): # forward declaration
+    pass
+    
+def CV_GRAPH_EDGE_FIELDS():
+    return [
+        ('flags', c_int),
+        ('weight', c_float),
+        ('next', POINTER(CvGraphEdge)*2),
+        ('vtx', POINTER(CvGraphVtx)*2),
+    ]
+
+def CV_GRAPH_VERTEX_FIELDS():
+    return [('flags', c_int),
+            ('first', POINTER(CvGraphEdge))]
+
+CvGraphEdge._fields_ = CV_GRAPH_EDGE_FIELDS()
+CvGraphVtx._fields_ = CV_GRAPH_VERTEX_FIELDS()
+
+class CvGraphVtx2D(_Structure):
+    _fields_ = CV_GRAPH_VERTEX_FIELDS() + [('ptr', POINTER(CvPoint2D32f))]
+
+#    Graph is "derived" from the set (this is set a of vertices) and includes another set (edges)
+def CV_GRAPH_FIELDS():
+    return CV_SET_FIELDS() + [('edges', POINTER(CvSET))]
+    
+class CvGraph(_Structure): 
+    _fields_ = CV_GRAPH_FIELDS()
+
+CV_TYPE_NAME_GRAPH = "opencv-graph"
+
+#-----------------------------------------------------------------------------
+# Chain/Countour
+#-----------------------------------------------------------------------------
+
+# Chain/contour
+class CvChain(_Structure):
+    _fields_ = CV_SEQUENCE_FIELDS() + [('origin', CvPoint)]
+    
+def CV_CONTOUR_FIELDS():
+    return CV_SEQUENCE_FIELDS() + [
+        ('rect', CvRect),
+        ('color', c_int),
+        ('reserved', c_int*3),
+    ]
+
+class CvContour(_Structure):
+    _fields_ = CV_CONTOUR_FIELDS()
+
+CvPoint2DSeq = CvContour
+
+#-----------------------------------------------------------------------------
+# Sequence types
+#-----------------------------------------------------------------------------
+
+#Viji Periapoilan 5/21/2007(start)
+#/****************************************************************************************\
+#*                                    Sequence types                                      *
+#\****************************************************************************************/
+
+CV_SEQ_MAGIC_VAL            = 0x42990000
+
+#define CV_IS_SEQ(seq) \
+#    ((seq) != NULL && (((CvSeq*)(seq))->flags & CV_MAGIC_MASK) == CV_SEQ_MAGIC_VAL)
+
+CV_SET_MAGIC_VAL           = 0x42980000
+#define CV_IS_SET(set) \
+#    ((set) != NULL && (((CvSeq*)(set))->flags & CV_MAGIC_MASK) == CV_SET_MAGIC_VAL)
+
+CV_SEQ_ELTYPE_BITS         = 9
+CV_SEQ_ELTYPE_MASK         =  ((1 << CV_SEQ_ELTYPE_BITS) - 1)
+CV_SEQ_ELTYPE_POINT        =  CV_32SC2  #/* (x,y) */
+CV_SEQ_ELTYPE_CODE         = CV_8UC1   #/* freeman code: 0..7 */
+CV_SEQ_ELTYPE_GENERIC      =  0
+CV_SEQ_ELTYPE_PTR          =  CV_USRTYPE1
+CV_SEQ_ELTYPE_PPOINT       =  CV_SEQ_ELTYPE_PTR  #/* &(x,y) */
+CV_SEQ_ELTYPE_INDEX        =  CV_32SC1  #/* #(x,y) */
+CV_SEQ_ELTYPE_GRAPH_EDGE   =  0  #/* &next_o, &next_d, &vtx_o, &vtx_d */
+CV_SEQ_ELTYPE_GRAPH_VERTEX =  0  #/* first_edge, &(x,y) */
+CV_SEQ_ELTYPE_TRIAN_ATR    =  0  #/* vertex of the binary tree   */
+CV_SEQ_ELTYPE_CONNECTED_COMP= 0  #/* connected component  */
+CV_SEQ_ELTYPE_POINT3D      =  CV_32FC3  #/* (x,y,z)  */
+
+CV_SEQ_KIND_BITS           = 3
+CV_SEQ_KIND_MASK           = (((1 << CV_SEQ_KIND_BITS) - 1)<<CV_SEQ_ELTYPE_BITS)
+
+
+# types of sequences
+CV_SEQ_KIND_GENERIC        = (0 << CV_SEQ_ELTYPE_BITS)
+CV_SEQ_KIND_CURVE          = (1 << CV_SEQ_ELTYPE_BITS)
+CV_SEQ_KIND_BIN_TREE       = (2 << CV_SEQ_ELTYPE_BITS)
+
+#Viji Periapoilan 5/21/2007(end)
+
+# types of sparse sequences (sets)
+CV_SEQ_KIND_GRAPH       = (3 << CV_SEQ_ELTYPE_BITS)
+CV_SEQ_KIND_SUBDIV2D    = (4 << CV_SEQ_ELTYPE_BITS)
+
+CV_SEQ_FLAG_SHIFT       = (CV_SEQ_KIND_BITS + CV_SEQ_ELTYPE_BITS)
+
+# flags for curves
+CV_SEQ_FLAG_CLOSED     = (1 << CV_SEQ_FLAG_SHIFT)
+CV_SEQ_FLAG_SIMPLE     = (2 << CV_SEQ_FLAG_SHIFT)
+CV_SEQ_FLAG_CONVEX     = (4 << CV_SEQ_FLAG_SHIFT)
+CV_SEQ_FLAG_HOLE       = (8 << CV_SEQ_FLAG_SHIFT)
+
+# flags for graphs
+CV_GRAPH_FLAG_ORIENTED = (1 << CV_SEQ_FLAG_SHIFT)
+
+CV_GRAPH               = CV_SEQ_KIND_GRAPH
+CV_ORIENTED_GRAPH      = (CV_SEQ_KIND_GRAPH|CV_GRAPH_FLAG_ORIENTED)
+
+# point sets
+CV_SEQ_POINT_SET       = (CV_SEQ_KIND_GENERIC| CV_SEQ_ELTYPE_POINT)
+CV_SEQ_POINT3D_SET     = (CV_SEQ_KIND_GENERIC| CV_SEQ_ELTYPE_POINT3D)
+CV_SEQ_POLYLINE        = (CV_SEQ_KIND_CURVE  | CV_SEQ_ELTYPE_POINT)
+CV_SEQ_POLYGON         = (CV_SEQ_FLAG_CLOSED | CV_SEQ_POLYLINE )
+CV_SEQ_CONTOUR         = CV_SEQ_POLYGON
+CV_SEQ_SIMPLE_POLYGON  = (CV_SEQ_FLAG_SIMPLE | CV_SEQ_POLYGON  )
+
+# chain-coded curves
+CV_SEQ_CHAIN           = (CV_SEQ_KIND_CURVE  | CV_SEQ_ELTYPE_CODE)
+CV_SEQ_CHAIN_CONTOUR   = (CV_SEQ_FLAG_CLOSED | CV_SEQ_CHAIN)
+
+# binary tree for the contour
+CV_SEQ_POLYGON_TREE    = (CV_SEQ_KIND_BIN_TREE  | CV_SEQ_ELTYPE_TRIAN_ATR)
+
+# sequence of the connected components
+CV_SEQ_CONNECTED_COMP  = (CV_SEQ_KIND_GENERIC  | CV_SEQ_ELTYPE_CONNECTED_COMP)
+
+# sequence of the integer numbers
+CV_SEQ_INDEX           = (CV_SEQ_KIND_GENERIC  | CV_SEQ_ELTYPE_INDEX)
+
+CV_SEQ_ELTYPE( seq )   = ((seq)->flags & CV_SEQ_ELTYPE_MASK)
+CV_SEQ_KIND( seq )     = ((seq)->flags & CV_SEQ_KIND_MASK )
+
+#-----------------------------------------------------------------------------
+# Sequence writer & reader
+#-----------------------------------------------------------------------------
+
+# Sequence writer & reader
+def CV_SEQ_WRITER_FIELDS():
+    return [
+        ('header_size', c_int),
+        ('seq', POINTER(CvSeq)), # the sequence written
+        ('block', POINTER(CvSeqBlock)), # current block
+        ('ptr', c_char_p), # pointer to free space
+        ('block_min', c_char_p), # pointer to the beginning of block
+        ('block_max', c_char_p), # pointer to the end of block
+    ]
+
+class CvSeqWriter(_Structure):
+    _fields_ = CV_SEQ_WRITER_FIELDS()
+
+def CV_SEQ_READER_FIELDS():
+    return [
+        ('header_size', c_int),
+        ('seq', POINTER(CvSeq)), # sequence, begin read
+        ('block', POINTER(CvSeqBlock)), # current block
+        ('ptr', c_char_p), # pointer to free space
+        ('block_min', c_char_p), # pointer to the beginning of block
+        ('block_max', c_char_p), # pointer to the end of block
+        ('delta_index', c_int), # = seq->first-.start_index
+        ('prev_elem', c_char_p), # pointer to previous element
+    ]
+
+class CvSeqReader(_Structure):
+    _fields_ = CV_SEQ_READER_FIELDS()
+
+#-----------------------------------------------------------------------------
+# Data structures for persistence (a.k.a serialization) functionality
+#-----------------------------------------------------------------------------
+
+# File storage
+class CvFileStorage(_Structure):
+    _fields_ = []
+
+# Data structures for persistence (a.k.a serialization) functionality
+CV_STORAGE_READ = 0
+CV_STORAGE_WRITE = 1
+CV_STORAGE_WRITE_TEXT = CV_STORAGE_WRITE
+CV_STORAGE_WRITE_BINARY = CV_STORAGE_WRITE
+CV_STORAGE_APPEND = 2
+
+# List of attributes
+class CvAttrList(_Structure):
+    pass
+CvAttrList._fields_ = [
+    ("attr", POINTER(c_char_p)), # NULL-terminated array of (attribute_name,attribute_value) pairs
+    ("next", POINTER(CvAttrList)), # pointer to next chunk of the attributes list
+]
+
+def cvAttrList(attr=None, next=None):
+    return CvAttrList(attr, next)
+    
+class CvTypeInfo(_Structure): # forward declaration
+    pass
+    
+CV_NODE_NONE        = 0
+CV_NODE_INT         = 1
+CV_NODE_INTEGER     = CV_NODE_INT
+CV_NODE_REAL        = 2
+CV_NODE_FLOAT       = CV_NODE_REAL
+CV_NODE_STR         = 3
+CV_NODE_STRING      = CV_NODE_STR
+CV_NODE_REF         = 4 # not used
+CV_NODE_SEQ         = 5
+CV_NODE_MAP         = 6
+CV_NODE_TYPE_MASK   = 7
+
+CV_NODE_TYPE(flags)  = ((flags) & CV_NODE_TYPE_MASK)
+
+# file node flags
+CV_NODE_FLOW        = 8 # used only for writing structures to YAML format
+CV_NODE_USER        = 16
+CV_NODE_EMPTY       = 32
+CV_NODE_NAMED       = 64
+
+class CvString(_Structure):
+    _fields_ = [("len", c_int),
+                ("ptr", c_char_p)]
+
+class CvStringHashNode(_Structure):
+    pass
+CvStringHashNode._fields_ = [("hashval", c_uint32),
+                ("str", CvString),
+                ("next", POINTER(CvStringHashNode))]
+
+class CvFileNodeHash(_Structure):
+    _fields_ = [] # CvGenericHash, to be expanded in the future
+    
+class CvFileNodeData(Union):
+    _fields_ = [
+        ('f', c_double), # scalar floating-point number
+        ('i', c_int), # scalar integer number
+        ('str', CvString), # text string
+        ('seq', POINTER(CvSeq)), # sequence (ordered collection of file nodes)
+        ('map', POINTER(CvFileNodeHash)), # map (collection of named file nodes)
+    ]
+    
+class CvFileNode(_Structure):
+    _fields_ = [
+        ('tag', c_int),
+        ('info', POINTER(CvTypeInfo)), # type information(only for user-defined object, for others it is 0)
+        ('data', CvFileNodeData),
+    ]
+
+CvIsInstanceFunc = CFUNCTYPE(c_int, c_void_p)
+CvReleaseFunc = CFUNCTYPE(None, POINTER(c_void_p))
+CvReadFunc = CFUNCTYPE(c_void_p, POINTER(CvFileStorage), POINTER(CvFileNode))
+cvWriteFunc = CFUNCTYPE(None, POINTER(CvFileStorage), c_char_p, c_void_p, CvAttrList)
+cvCloneFunc = CFUNCTYPE(c_void_p, c_void_p)
+
+CvTypeInfo._fields_ = [
+    ('flags', c_int),
+    ('header_size', c_int),
+    ('prev', POINTER(CvTypeInfo)),
+    ('next', POINTER(CvTypeInfo)),
+    ('type_name', c_char_p),
+    ('is_instance', CvIsInstanceFunc),
+    ('release', CvReleaseFunc),
+    ('read', CvReadFunc),
+    ('write', CvWriteFunc),
+    ('clone', CvCloneFunc),
+]
+    
+
+#=============================================================================
+# cxcore/cxcore.h
+#=============================================================================
+
+# here, to be updated soon
+
+#=============================================================================
+# End of modification + addition by Minh-Tri Pham
+#=============================================================================
+
+    
 # --- CONSTANTS AND STUFF FROM CV.H ------------------------------------------------------
 
 CV_BLUR_NO_SCALE = 0
@@ -457,32 +1391,6 @@ CV_ErrModeLeaf = 0     # print error and exit program
 CV_ErrModeParent = 1     # print error and continue
 CV_ErrModeSilent = 2     # don't print and continue
 
-#------
-
-# make function prototypes a bit easier to declare
-def cfunc(name, dll, result, *args):
-    '''build and apply a ctypes prototype complete with parameter flags
-    e.g.
-cvMinMaxLoc = cfunc('cvMinMaxLoc', _cxDLL, None,
-                    ('image', POINTER(IplImage), 1),
-                    ('min_val', POINTER(double), 2),
-                    ('max_val', POINTER(double), 2),
-                    ('min_loc', POINTER(CvPoint), 2),
-                    ('max_loc', POINTER(CvPoint), 2),
-                    ('mask', POINTER(IplImage), 1, None))
-means locate cvMinMaxLoc in dll _cxDLL, it returns nothing.
-The first argument is an input image. The next 4 arguments are output, and the last argument is
-input with an optional value. A typical call might look like:
-
-min_val,max_val,min_loc,max_loc = cvMinMaxLoc(img)
-    '''
-    atypes = []
-    aflags = []
-    for arg in args:
-        atypes.append(arg[1])
-        aflags.append((arg[2], arg[0]) + arg[3:])
-    return CFUNCTYPE(result, *atypes)((name, dll), tuple(aflags))
-
 class ListPOINTER(object):
     '''Just like a POINTER but accept a list of ctype as an argument'''
     def __init__(self, etype):
@@ -534,59 +1442,6 @@ CV_TM_CCORR_NORMED  =3
 CV_TM_CCOEFF        =4
 CV_TM_CCOEFF_NORMED =5
 
-# Image type (IplImage)
-IPL_DEPTH_SIGN = 0x80000000
-
-IPL_DEPTH_1U =  1
-IPL_DEPTH_8U =  8
-IPL_DEPTH_16U = 16
-IPL_DEPTH_32F = 32
-
-IPL_DEPTH_8S = IPL_DEPTH_SIGN + IPL_DEPTH_8U
-IPL_DEPTH_16S = IPL_DEPTH_SIGN + IPL_DEPTH_16U
-IPL_DEPTH_32S = IPL_DEPTH_SIGN + 32
-
-IPL_DATA_ORDER_PIXEL = 0
-IPL_DATA_ORDER_PLANE = 1
-
-IPL_ORIGIN_TL = 0
-IPL_ORIGIN_BL = 1
-
-IPL_ALIGN_4BYTES = 4
-IPL_ALIGN_8BYTES = 8
-IPL_ALIGN_16BYTES = 16
-IPL_ALIGN_32BYTES = 32
-
-IPL_ALIGN_DWORD = IPL_ALIGN_4BYTES
-IPL_ALIGN_QWORD = IPL_ALIGN_8BYTES
-
-IPL_BORDER_CONSTANT = 0
-IPL_BORDER_REPLICATE = 1
-IPL_BORDER_REFLECT = 2
-IPL_BORDER_WRAP = 3
-
-IPL_IMAGE_HEADER = 1
-IPL_IMAGE_DATA = 2
-IPL_IMAGE_ROI = 4
-
-CV_TYPE_NAME_IMAGE = "opencv-image"
-
-IPL_DEPTH_64F = 64
-
-# Matrix type (CvMat)
-CV_CN_MAX = 4
-CV_CN_SHIFT = 3
-CV_DEPTH_MAX = (1 << CV_CN_SHIFT)
-
-CV_8U = 0
-CV_8S = 1
-CV_16U = 2
-CV_16S = 3
-CV_32S = 4
-CV_32F = 5
-CV_64F = 6
-CV_USRTYPE1 = 7
-
 #
 # Sim Harbert 4/9/2007 (start)
 # Added following defines:
@@ -600,8 +1455,6 @@ CV_THRESH_TOZERO_INV  = 4
 CV_C           = 1
 CV_L1          = 2
 CV_L2          = 4
-
-CV_PI = math.pi
 
 # Sim Harbert 4/9/2007 (end)
 
@@ -627,98 +1480,9 @@ CV_CHAIN_APPROX_TC89_KCOS   = 4
 CV_LINK_RUNS                = 5
 #Viji Periapoilan 4/16/2007(end)
 
-#Viji Periapoilan 5/23/2007(start)
-CV_WHOLE_SEQ_END_INDEX = 0x3fffffff
-#CV_WHOLE_SEQ = CvSlice(0, CV_WHOLE_SEQ_END_INDEX)
-
-#Viji Periapoilan 5/23/2007(end)
-
-def CV_MAKETYPE(depth,cn):
-    return ((depth) + (((cn)-1) << CV_CN_SHIFT))
-CV_MAKE_TYPE = CV_MAKETYPE
-
-CV_8UC1 = CV_MAKETYPE(CV_8U,1)
-CV_8UC2 = CV_MAKETYPE(CV_8U,2)
-CV_8UC3 = CV_MAKETYPE(CV_8U,3)
-CV_8UC4 = CV_MAKETYPE(CV_8U,4)
-
-CV_8SC1 = CV_MAKETYPE(CV_8S,1)
-CV_8SC2 = CV_MAKETYPE(CV_8S,2)
-CV_8SC3 = CV_MAKETYPE(CV_8S,3)
-CV_8SC4 = CV_MAKETYPE(CV_8S,4)
-
-CV_16UC1 = CV_MAKETYPE(CV_16U,1)
-CV_16UC2 = CV_MAKETYPE(CV_16U,2)
-CV_16UC3 = CV_MAKETYPE(CV_16U,3)
-CV_16UC4 = CV_MAKETYPE(CV_16U,4)
-
-CV_16SC1 = CV_MAKETYPE(CV_16S,1)
-CV_16SC2 = CV_MAKETYPE(CV_16S,2)
-CV_16SC3 = CV_MAKETYPE(CV_16S,3)
-CV_16SC4 = CV_MAKETYPE(CV_16S,4)
-
-CV_32SC1 = CV_MAKETYPE(CV_32S,1)
-CV_32SC2 = CV_MAKETYPE(CV_32S,2)
-CV_32SC3 = CV_MAKETYPE(CV_32S,3)
-CV_32SC4 = CV_MAKETYPE(CV_32S,4)
-
-CV_32FC1 = CV_MAKETYPE(CV_32F,1)
-CV_32FC2 = CV_MAKETYPE(CV_32F,2)
-CV_32FC3 = CV_MAKETYPE(CV_32F,3)
-CV_32FC4 = CV_MAKETYPE(CV_32F,4)
-
-CV_64FC1 = CV_MAKETYPE(CV_64F,1)
-CV_64FC2 = CV_MAKETYPE(CV_64F,2)
-CV_64FC3 = CV_MAKETYPE(CV_64F,3)
-CV_64FC4 = CV_MAKETYPE(CV_64F,4)
-
-CV_AUTO_STEP = 0x7fffffff
-
-CV_MAT_CN_MASK = ((CV_CN_MAX - 1) << CV_CN_SHIFT)
-def CV_MAT_CN(flags):
-    return ((((flags) & CV_MAT_CN_MASK) >> CV_CN_SHIFT) + 1)
-CV_MAT_DEPTH_MASK = (CV_DEPTH_MAX - 1)
-def CV_MAT_DEPTH(flags):
-    return ((flags) & CV_MAT_DEPTH_MASK)
-CV_MAT_TYPE_MASK = (CV_DEPTH_MAX*CV_CN_MAX - 1)
-def CV_MAT_TYPE(flags):
-    ((flags) & CV_MAT_TYPE_MASK)
-CV_MAT_CONT_FLAG_SHIFT = 9
-CV_MAT_CONT_FLAG = (1 << CV_MAT_CONT_FLAG_SHIFT)
-def CV_IS_MAT_CONT(flags):
-    return ((flags) & CV_MAT_CONT_FLAG)
-CV_IS_CONT_MAT = CV_IS_MAT_CONT
-CV_MAT_TEMP_FLAG_SHIFT = 10
-CV_MAT_TEMP_FLAG = (1 << CV_MAT_TEMP_FLAG_SHIFT)
-def CV_IS_TEMP_MAT(flags):
-    return ((flags) & CV_MAT_TEMP_FLAG)
-
-CV_MAGIC_MASK = 0xFFFF0000
-CV_MAT_MAGIC_VAL = 0x42420000
-CV_TYPE_NAME_MAT = "opencv-matrix"
-
-# Termination criteria for iterative algorithms
-CV_TERMCRIT_ITER = 1
-CV_TERMCRIT_NUMBER = CV_TERMCRIT_ITER
-CV_TERMCRIT_EPS = 2
-
-# Data structures for persistence (a.k.a serialization) functionality
-CV_STORAGE_READ = 0
-CV_STORAGE_WRITE = 1
-CV_STORAGE_WRITE_TEXT = CV_STORAGE_WRITE
-CV_STORAGE_WRITE_BINARY = CV_STORAGE_WRITE
-CV_STORAGE_APPEND = 2
-
-CV_MAX_DIM = 32
-CV_MAX_DIM_HEAP = (1 << 16) # added by Minh-Tri Pham
-
 CV_FILLED = -1
 CV_AA = 16
 
-CV_VERSION = "1.0.0"
-CV_MAJOR_VERSION = 1
-CV_MINOR_VERSION = 0
-CV_SUBMINOR_VERSION = 0
 CV_WINDOW_AUTOSIZE = 1
 
 CV_CAP_PROP_POS_MSEC      = 0
@@ -741,328 +1505,14 @@ CV_CAP_PROP_CONVERT_RGB   =15
 def CV_FOURCC(c1,c2,c3,c4):
     return (((ord(c1))&255) + (((ord(c2))&255)<<8) + (((ord(c3))&255)<<16) + (((ord(c4))&255)<<24))
 
-#Viji Periapoilan 5/21/2007(start)
-#/****************************************************************************************\
-#*                                    Sequence types                                      *
-#\****************************************************************************************/
-
-CV_SEQ_MAGIC_VAL            = 0x42990000
-
-#define CV_IS_SEQ(seq) \
-#    ((seq) != NULL && (((CvSeq*)(seq))->flags & CV_MAGIC_MASK) == CV_SEQ_MAGIC_VAL)
-
-CV_SET_MAGIC_VAL           = 0x42980000
-#define CV_IS_SET(set) \
-#    ((set) != NULL && (((CvSeq*)(set))->flags & CV_MAGIC_MASK) == CV_SET_MAGIC_VAL)
-
-CV_SEQ_ELTYPE_BITS         = 9
-CV_SEQ_ELTYPE_MASK         =  ((1 << CV_SEQ_ELTYPE_BITS) - 1)
-CV_SEQ_ELTYPE_POINT        =  CV_32SC2  #/* (x,y) */
-CV_SEQ_ELTYPE_CODE         = CV_8UC1   #/* freeman code: 0..7 */
-CV_SEQ_ELTYPE_GENERIC      =  0
-CV_SEQ_ELTYPE_PTR          =  CV_USRTYPE1
-CV_SEQ_ELTYPE_PPOINT       =  CV_SEQ_ELTYPE_PTR  #/* &(x,y) */
-CV_SEQ_ELTYPE_INDEX        =  CV_32SC1  #/* #(x,y) */
-CV_SEQ_ELTYPE_GRAPH_EDGE   =  0  #/* &next_o, &next_d, &vtx_o, &vtx_d */
-CV_SEQ_ELTYPE_GRAPH_VERTEX =  0  #/* first_edge, &(x,y) */
-CV_SEQ_ELTYPE_TRIAN_ATR    =  0  #/* vertex of the binary tree   */
-CV_SEQ_ELTYPE_CONNECTED_COMP= 0  #/* connected component  */
-CV_SEQ_ELTYPE_POINT3D      =  CV_32FC3  #/* (x,y,z)  */
-
-CV_SEQ_KIND_BITS           = 3
-CV_SEQ_KIND_MASK           = (((1 << CV_SEQ_KIND_BITS) - 1)<<CV_SEQ_ELTYPE_BITS)
-
-
-#/* types of sequences */
-CV_SEQ_KIND_GENERIC        = (0 << CV_SEQ_ELTYPE_BITS)
-CV_SEQ_KIND_CURVE          = (1 << CV_SEQ_ELTYPE_BITS)
-CV_SEQ_KIND_BIN_TREE       = (2 << CV_SEQ_ELTYPE_BITS)
-
-#Viji Periapoilan 5/21/2007(end)
-
-
-# hack the ctypes.Structure class to include printing the fields
-class _Structure(Structure):
-    def __repr__(self):
-        '''Print the fields'''
-        res = []
-        for field in self._fields_:
-            res.append('%s=%s' % (field[0], repr(getattr(self, field[0]))))
-        return self.__class__.__name__ + '(' + ','.join(res) + ')'
-    @classmethod
-    def from_param(cls, obj):
-        '''Magically construct from a tuple'''
-        if isinstance(obj, cls):
-            return obj
-        if isinstance(obj, tuple):
-            return cls(*obj)
-        raise TypeError
-
 # --- Klassen- und Funktionsdefinitionen -------------------------------------
-
-# 2D point with integer coordinates
-class CvPoint(_Structure):
-    _fields_ = [("x", c_int),
-                ("y", c_int)]
-
-# 2D point with floating-point coordinates
-class CvPoint2D32f(_Structure):
-    _fields_ = [("x", c_float),
-                ("y", c_float)]
-
-# 3D point with floating-point coordinates
-class CvPoint3D32f(_Structure):
-    _fields_ = [("x", c_float),
-                ("y", c_float),
-                ("z", c_float)]
-
-# 2D point with double precision floating-point coordinates
-class CvPoint2D64f(_Structure):
-    _fields_ = [("x", c_double),
-                ("y", c_double)]
-CvPoint2D64d = CvPoint2D64f
-
-# 3D point with double precision floating-point coordinates
-class CvPoint3D64f(_Structure):
-    _fields_ = [("x", c_double),
-                ("y", c_double),
-                ("z", c_double)]
-CvPoint3D64d = CvPoint3D64f
-
-# pixel-accurate size of a rectangle
-class CvSize(_Structure):
-    _fields_ = [("width", c_int),
-                ("height", c_int)]
-
-# sub-pixel accurate size of a rectangle
-class CvSize2D32f(_Structure):
-    _fields_ = [("width", c_float),
-                ("height", c_float)]
-
-# offset and size of a rectangle
-class CvRect(_Structure):
-    _fields_ = [("x", c_int),
-                ("y", c_int),
-                ("width", c_int),
-                ("height", c_int)]
-    def bloat(self, s):
-        return CvRect(self.x-s, self.y-s, self.width+2*s, self.height+2*s)
-
-# A container for 1-,2-,3- or 4-tuples of numbers
-class CvScalar(_Structure):
-    _fields_ = [("val", c_double * 4)]
-    def __init__(self, *vals):
-        '''Enable initialization with multiple parameters instead of just a tuple'''
-        if len(vals) == 1:
-            super(CvScalar, self).__init__((vals[0],0,0,0)) # modified by Minh-Tri
-            # super(CvScalar, self).__init__(vals[0])
-        else:
-            super(CvScalar, self).__init__(vals)
-
-# Termination criteria for iterative algorithms
-class CvTermCriteria(_Structure):
-    _fields_ = [("type", c_int),
-                ("max_iter", c_int),
-                ("epsilon", c_double)]
-
-# Multi-channel matrix
-class CvMat(Structure):
-    _fields_ = [("type", c_int),
-                ("step", c_int),
-                ("refcount", c_void_p),
-                ("hdr_refcount", c_int),
-                ("data", c_void_p),
-                ("rows", c_int),
-                ("cols", c_int)]
-
-# Multi-dimensional dense multi-channel matrix
-class CvMatNDdata(Union):
-    _fields_ = [("ptr", POINTER(c_ubyte)),
-                ("s", POINTER(c_short)),
-                ("i", POINTER(c_int)),
-                ("fl", POINTER(c_float)),
-                ("db", POINTER(c_double))]
-class CvMatNDdim(Structure):
-    _fields_ = [("size", c_int),
-                ("step", c_int)]
-class CvMatND(Structure):
-    _fields_ = [("type", c_int),
-                ("dims", c_int),
-                ("refcount", c_void_p),
-                ("data", CvMatNDdata),
-                ("dim", CvMatNDdim*CV_MAX_DIM)]
-
-# IPL image header
-class IplImage(Structure):
-    _fields_ = [("nSize", c_int),
-                ("ID", c_int),
-                ("nChannels", c_int),
-                ("alphaChannel", c_int),
-                ("depth", c_int),
-                ("colorModel", c_char * 4),
-                ("channelSeq", c_char * 4),
-                ("dataOrder", c_int),
-                ("origin", c_int),
-                ("align", c_int),
-                ("width", c_int),
-                ("height", c_int),
-                ("roi", c_void_p),
-                ("maskROI", c_void_p),
-                ("imageID", c_void_p),
-                ("tileInfo", c_void_p),
-                ("imageSize", c_int),
-                ("imageData", c_void_p),
-                ("widthStep", c_int),
-                ("BorderMode", c_int * 4),
-                ("BorderConst", c_int * 4),
-                ("imageDataOrigin", c_char_p)]
-
-    def __repr__(self):
-        '''Print the fields'''
-        res = []
-        for field in self._fields_:
-            if field[0] in ['imageData', 'imageDataOrigin']: continue
-            res.append('%s=%s' % (field[0], repr(getattr(self, field[0]))))
-        return self.__class__.__name__ + '(' + ','.join(res) + ')'
-
-# List of attributes
-class CvAttrList(Structure):
-    _fields_ = [("attr", c_void_p),
-                ("next", c_void_p)]
 
 # =========================================
 # Begin of addition by Minh-Tri Pham
 # =========================================
 
-class CvMemBlock(Structure): # forward declaration
-    pass
-CvMemBlock._fields_ = [
-    ('prev', POINTER(CvMemBlock)),
-    ('next', POINTER(CvMemBlock)),
-]
-
-CV_STORAGE_MAGIC_VAL = 0x42890000
-
-# Memory storage
-class CvMemStorage(Structure): # forward declaration
-    pass
-CvMemStorage._fields_ = [
-    ("signature", c_int),
-    ("bottom", POINTER(CvMemBlock)), # first allocated block
-    ("top", POINTER(CvMemBlock)), # current memory block - top of the stack
-    ("parent", POINTER(CvMemStorage)), # borrows new blocks from
-    ("block_size", c_int), # block size
-    ("free_space", c_int)] # free space in the current block
-
-class CvMemStoragePos(Structure):
-    _fields_ = [('top', POINTER(CvMemBlock)),
-                ('free_space', c_int)]
-
-                
-class CvSeqBlock(Structure): # forward declaration
-    pass
-CvSeqBlock._fields_ = [
-    ('prev', POINTER(CvSeqBlock)), # previous sequence block
-    ('next', POINTER(CvSeqBlock)), # next sequence block
-    ('start_index', c_int), # index of the first element in the block + sequence->first->start_index
-    ('count', c_int), # number of elements in the block
-    ('data', c_char_p), # pointer to the first element of the block
-]
-
-def CV_TREE_NODE_FIELDS(node_type):
-    return [
-        ('flags', c_int), # micsellaneous flags
-        ('header_size', c_int), # size of sequence header
-        ('h_prev', POINTER(node_type)), # previous sequence
-        ('h_next', POINTER(node_type)), # next sequence
-        ('v_prev', POINTER(node_type)), # 2nd previous sequence
-        ('v_next', POINTER(node_type)), # 2nd next sequence
-    ]
-
-class CvSeq(Structure): # forward declaration
-    pass
-    
-def CV_SEQUENCE_FIELDS():
-    return CV_TREE_NODE_FIELDS(CvSeq) + [
-        ('total', c_int), # total number of elements
-        ('elem_size', c_int), # size of sequence element in bytes
-        ('block_max', c_char_p), # maximal bound of the last block
-        ('ptr', c_char_p), # current write pointer
-        ('delta_elems', c_int), # how many elements allocated when the seq grows
-        ('storage', POINTER(CvMemStorage)), # where the seq is stored
-        ('free_blocks', POINTER(CvSeqBlock)), # free blocks list
-        ('first', POINTER(CvSeqBlock)), # pointer to the first sequence block
-    ]
-
-# Sequence
-CvSeq._fields_ = CV_SEQUENCE_FIELDS()
-
-
-# Sequence writer & reader
-def CV_SEQ_WRITER_FIELDS():
-    return [
-        ('header_size', c_int),
-        ('seq', POINTER(CvSeq)), # the sequence written
-        ('block', POINTER(CvSeqBlock)), # current block
-        ('ptr', c_char_p), # pointer to free space
-        ('block_min', c_char_p), # pointer to the beginning of block
-        ('block_max', c_char_p), # pointer to the end of block
-    ]
-
-class CvSeqWriter(Structure):
-    _fields_ = CV_SEQ_WRITER_FIELDS()
-
-def CV_SEQ_READER_FIELDS():
-    return [
-        ('header_size', c_int),
-        ('seq', POINTER(CvSeq)), # sequence, begin read
-        ('block', POINTER(CvSeqBlock)), # current block
-        ('ptr', c_char_p), # pointer to free space
-        ('block_min', c_char_p), # pointer to the beginning of block
-        ('block_max', c_char_p), # pointer to the end of block
-        ('delta_index', c_int), # = seq->first-.start_index
-        ('prev_elem', c_char_p), # pointer to previous element
-    ]
-
-class CvSeqReader(Structure):
-    _fields_ = CV_SEQ_READER_FIELDS()
-
-    
-# File storage
-class CvFileStorage(Structure):
-    _fields_ = []
-
-
-class CvSetElem(Structure):
-    pass
-CvSetElem._fields_ = [
-    ('flags', c_int),
-    ('next_free', POINTER(CvSetElem))]
-    
-def CV_SET_FIELDS():
-    return CV_SEQUENCE_FIELDS() + [
-        ('free_elems', POINTER(CvSetElem)),
-        ('active_count', c_int),
-    ]
-
-class CvSET(Structure):
-    _fields_ = CV_SET_FIELDS()
-
-    
-class CvSparseMat(Structure):
-    _fields_ = [('type', c_int),
-                ('dims', c_int),
-                ('refcount', c_int_p),
-                ('hdr_refcount', c_int),
-                ('heap', POINTER(CvSET)),
-                ('hashtable', POINTER(c_void_p)),
-                ('hashsize', c_int),
-                ('valoffset', c_int),
-                ('idxoffset', c_int),
-                ('size', c_int * CV_MAX_DIM)]
-
 # Font
-class CvFont(Structure):
+class CvFont(_Structure):
     _fields_ = [("font_face", c_int),
                 ("ascii", c_int_p),
                 ("greek", c_int_p),
@@ -1074,75 +1524,9 @@ class CvFont(Structure):
                 ("dx", c_float),
                 ("line_type", c_int)]
 
-class CvString(Structure):
-    _fields_ = [("len", c_int),
-                ("ptr", c_char_p)]
-
-class CvStringHashNode(Structure):
-    pass
-CvStringHashNode._fields_ = [("hashval", c_uint32),
-                ("str", CvString),
-                ("next", POINTER(CvStringHashNode))]
-
-class CvHistogram(Structure):
-    _fields_ = [('type', c_int),
-                ('bins', c_void_p),
-                ('thresh', (c_float*2)*CV_MAX_DIM), # for uniform histograms
-                ('thresh2', POINTER(c_float_p)), # for non-uniform histograms
-                ('mat', CvMatND)] # embedded matrix header for array histograms
-
                 
-# Graph
-class CvGraphEdge(Structure): # forward declaration
-    pass
-    
-class CvGraphVtx(Structure): # forward declaration
-    pass
-    
-def CV_GRAPH_EDGE_FIELDS():
-    return [
-        ('flags', c_int),
-        ('weight', c_float),
-        ('next', POINTER(CvGraphEdge)*2),
-        ('vtx', POINTER(CvGraphVtx)*2),
-    ]
-
-def CV_GRAPH_VERTEX_FIELDS():
-    return [('flags', c_int),
-            ('first', POINTER(CvGraphEdge))]
-
-CvGraphEdge._fields_ = CV_GRAPH_EDGE_FIELDS()
-CvGraphVtx._fields_ = CV_GRAPH_VERTEX_FIELDS()
-
-class CvGraphVtx2D(Structure):
-    _fields_ = CV_GRAPH_VERTEX_FIELDS() + [('ptr', POINTER(CvPoint2D32f))]
-
-#    Graph is "derived" from the set (this is set a of vertices) and includes another set (edges)
-def CV_GRAPH_FIELDS():
-    return CV_SET_FIELDS() + [('edges', POINTER(CvSET))]
-    
-class CvGraph(Structure): 
-    _fields_ = CV_GRAPH_FIELDS()
-
-
-# Chain/contour
-class CvChain(Structure):
-    _fields_ = CV_SEQUENCE_FIELDS() + [('origin', CvPoint)]
-    
-def CV_CONTOUR_FIELDS():
-    return CV_SEQUENCE_FIELDS() + [
-        ('rect', CvRect),
-        ('color', c_int),
-        ('reserved', c_int*3),
-    ]
-
-class CvContour(Structure):
-    _fields_ = CV_CONTOUR_FIELDS()
-
-CvPoint2DSeq = CvContour
-
 # CvCapture
-class CvCapture(Structure): # forward declaration
+class CvCapture(_Structure): # forward declaration
     pass
 
 CvCaptureCloseFunc = CFUNCTYPE(None, POINTER(CvCapture))
@@ -1152,7 +1536,7 @@ CvCaptureGetPropertyFunc = CFUNCTYPE(c_double, POINTER(CvCapture), c_int)
 CvCaptureSetPropertyFunc = CFUNCTYPE(c_int, POINTER(CvCapture), c_int, c_double)
 CvCaptureGetDescriptionFunc = CFUNCTYPE(c_char_p, POINTER(CvCapture))
 
-class CvCaptureVTable(Structure):
+class CvCaptureVTable(_Structure):
     _fields_ = [
         ('count', c_int),
         ('close', CvCaptureCloseFunc),
@@ -1171,11 +1555,11 @@ CvMatr32f = c_float_p
 CvVect64d = c_double_p
 CvMatr64d = c_double_p
 
-class CvMatrix3(Structure):
+class CvMatrix3(_Structure):
     _fields_ = [('m', (c_float*3)*3)]
 
 # spatial and central moments
-class CvMOMENTS(Structure):
+class CvMOMENTS(_Structure):
     _fields_ = [
         # spatial moments
         ('m00', c_double),
@@ -1202,7 +1586,7 @@ class CvMOMENTS(Structure):
     ]
 
 # Hu invariants
-class CvHuMoments(Structure):
+class CvHuMoments(_Structure):
     _fields_ = [ # Hu invariants
         ('hu1', c_double),
         ('hu2', c_double),
@@ -1221,14 +1605,14 @@ class CvConnectedComp(_Structure):
                 ('contour', POINTER(CvSeq))] # optional component boundary
 
 # Contour tree header
-class CvContourTree(Structure):
+class CvContourTree(_Structure):
     _fields_ = CV_SEQUENCE_FIELDS() + [
         ('p1', CvPoint), # the first point of the binary tree root segment
         ('p2', CvPoint), # the last point of the binary tree root segment
     ]
 
 # Finds a sequence of convexity defects of given contour
-class CvConvexityDefect(Structure):
+class CvConvexityDefect(_Structure):
     _fields_ = [
         ('start', POINTER(CvPoint)), # point of the contour where the defect begins
         ('end', POINTER(CvPoint)), # point of the contour where the defect ends
@@ -1240,7 +1624,7 @@ class CvConvexityDefect(Structure):
 # Data structures and related enumerations for Planar Subdivisions
 CvSubdiv2DEdge = size_t
 
-class CvSubdiv2DPoint(Structure):
+class CvSubdiv2DPoint(_Structure):
     pass
     
 def CV_QUADEDGE2D_FIELDS():
@@ -1259,7 +1643,7 @@ def CV_SUBDIV2D_POINT_FIELDS():
 
 CV_SUBDIV2D_VIRTUAL_POINT_FLAG = (1 << 30)
 
-class CvQuadEdge2D(Structure):
+class CvQuadEdge2D(_Structure):
     _fields_ = CV_QUADEDGE2D_FIELDS()
 
 CvSubdiv2DPoint._fields_ = CV_SUBDIV2D_POINT_FIELDS()
@@ -1273,7 +1657,7 @@ def CV_SUBDIV2D_FIELDS():
         ('bottomright', CvPoint2D32f),
     ]
 
-class CvSubdiv2D(Structure):
+class CvSubdiv2D(_Structure):
     _fields_ =CV_SUBDIV2D_FIELDS()
 
 CvSubdiv2DPointLocation = c_int
@@ -1307,7 +1691,7 @@ CvFilter = c_int
 CV_GAUSSIAN_5x5 = 7
 
 # CvRandState
-class CvRandState(Structure):
+class CvRandState(_Structure):
     _fields_ = [
         ('state', CvRNG), # RNG state (the current seed and carry)
         ('disttype', c_int), # distribution type
@@ -1315,7 +1699,7 @@ class CvRandState(Structure):
     ]
 
 # CvConDensation
-class CvConDensation(Structure):
+class CvConDensation(_Structure):
     _fields_ = [
         ('MP', c_int),
         ('DP', c_int),
@@ -1336,7 +1720,7 @@ class CvConDensation(Structure):
 #
 #  x(k)=A*x(k-1)+B*u(k)+w(k)  p(w)~N(0,Q)
 #  z(k)=H*x(k)+v(k),   p(v)~N(0,R)
-class CvKalman(Structure):
+class CvKalman(_Structure):
     _fields_ = [
         ('MP', c_int), # number of measurement vector dimensions
         ('DP', c_int), # number of state vector dimensions
@@ -1378,19 +1762,19 @@ CV_HAAR_MAGIC_VAL    = 0x42500000
 CV_TYPE_NAME_HAAR    = "opencv-haar-classifier"
 CV_HAAR_FEATURE_MAX  = 3
 
-class CvHaarFeatureRect(Structure):
+class CvHaarFeatureRect(_Structure):
     _fields_ = [
         ('r', CvRect),
         ('weight', c_float),
     ]    
 
-class CvHaarFeature(Structure):
+class CvHaarFeature(_Structure):
     _fields_ = [
         ('titled', c_int),
         ('rect', CvHaarFeatureRect*CV_HAAR_FEATURE_MAX),
     ]
 
-class CvHaarClassifier(Structure):
+class CvHaarClassifier(_Structure):
     _fields_ = [
         ('count', c_int),
         ('haar_feature', POINTER(CvHaarFeature)),
@@ -1400,7 +1784,7 @@ class CvHaarClassifier(Structure):
         ('alpha', c_float_p),
     ]
 
-class CvHaarStageClassifier(Structure):
+class CvHaarStageClassifier(_Structure):
     _fields_ = [
         ('count', c_int),
         ('threshold', c_float),
@@ -1410,10 +1794,10 @@ class CvHaarStageClassifier(Structure):
         ('parent', c_int),
     ]
 
-class CvHidHaarClassifierCascade(Structure): # not implemented yet
+class CvHidHaarClassifierCascade(_Structure): # not implemented yet
     _fields_ = []
 
-class CvHaarClassifierCascade(Structure):
+class CvHaarClassifierCascade(_Structure):
     _fields_ = [
         ('flags', c_int),
         ('count', c_int),
@@ -1424,7 +1808,7 @@ class CvHaarClassifierCascade(Structure):
         ('hid_cascade', POINTER(CvHidHaarClassifierCascade)),
     ]
 
-class CvAvgComp(Structure):
+class CvAvgComp(_Structure):
     _fields_ = [
         ('rect', CvRect),
         ('neighbors', c_int),
@@ -1437,48 +1821,29 @@ class CvAvgComp(Structure):
 # =========================================
 
 
-class CvSlice(Structure):
-    _fields_ = [('start_index', c_int),
-                ('end_index', c_int)]
-
-    
 # not implemented yet
-class CvContourScanner(Structure):
+class CvContourScanner(_Structure):
     _fields_ = []
 
-class CvGraphScanner(Structure):
+class CvGraphScanner(_Structure):
     _fields_ = []
 
-class CvFileNode(Structure):
+class CvTypeInfo(_Structure):
     _fields_ = []
 
-class CvTypeInfo(Structure):
+class CvPOSITObject(_Structure):
     _fields_ = []
 
-class CvBox2D(_Structure):
-    _fields_ = [('center', CvPoint2D32f),
-                ('size', CvSize2D32f),
-                ('angle', c_float)]
-
-class CvPOSITObject(Structure):
+class CvVideoWriter(_Structure):
     _fields_ = []
 
-class CvVideoWriter(Structure):
+class CvTreeNodeIterator(_Structure):
     _fields_ = []
 
-class CvTreeNodeIterator(Structure):
+class CvModuleInfo(_Structure):
     _fields_ = []
 
-class CvLineIterator(Structure):
-    _fields_ = []
-
-class CvModuleInfo(Structure):
-    _fields_ = []
-
-class IplConvKernel(Structure):
-    _fields_ = []
-
-class CvChainPtReader(Structure):
+class CvChainPtReader(_Structure):
     _fields_ = []
     
 
@@ -2380,10 +2745,6 @@ cvMahalanobis = cfunc('cvMahalanobis', _cxDLL, c_double,
 )
 
 # --- 1.8 Math Functions -----------------------------------------------------
-
-# Round to nearest integer
-def cvRound(val):
-    return int(val + 0.5)
 
 # Calculates cubic root
 cvCbrt = cfunc('cvCbrt', _cxDLL, c_float,
@@ -4012,8 +4373,6 @@ cvDistTransform = cfunc('cvDistTransform', _cvDLL, None,
 )
 
 # --- 1.9 Histograms ---------------------------------------------------------
-CV_HIST_ARRAY = 0
-CV_HIST_SPARSE = 1
 
 # Creates histogram
 cvCreateHist = cfunc('cvCreateHist', _cvDLL, POINTER(CvHistogram),
