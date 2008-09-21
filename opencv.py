@@ -21,7 +21,7 @@
 ctypes-opencv is a Python module which encapsulates the functionality of Intel's Open Source Computer Vision Library (OpenCV). The Open Computer Vision Library is a collection of algorithms and sample code for various computer vision problems. The library is compatible with IPL and utilizes Intel Integrated Performance Primitives for better performance. The goal of ctypes-opencv is to give one Python access to all documented functionality of OpenCV.
 
 :Author: Minh-Tri Pham <pmtri80@gmail.com>
-:Version: 0.2.0 (stable)
+:Version: 0.2.1 (stable)
 :Released: September 2008 (stable)
 
 Availability
@@ -54,6 +54,13 @@ See the 'sample.c' file for an example of using OpenCV in C, and the 'sample.py'
 
 Change Log
 ==========
+
+ctypes-opencv-0.2.1 stable release
+----------------------------------
+
+- Added cvRNG(), cvRandInt(), cvRandReal(), cvRandShuffle()
+- Added a kmeans sample
+- Fixed a small bug -- forgotten to export Cv* items
 
 ctypes-opencv-0.2.0 stable release
 ----------------------------------
@@ -222,8 +229,48 @@ def cvRound(val):
 # Random number generation
 #-----------------------------------------------------------------------------
 
+# Minh-Tri's note: I'd prefer using a random generator other than CvRNG.
+# It's slow and doesn't guarrantee a large cycle.
+
 CvRNG = c_uint64
 
+def cvRNG(seed=-1):
+    """CvRNG cvRNG( int64 seed = CV_DEFAULT(-1))
+    
+    Initializes random number generator and returns the state. 
+    """
+    if seed != 0:
+        return CvRNG(seed)
+    return CvRNG(-1)
+
+def cvRandInt(rng):
+    """unsigned cvRandInt( CvRNG* rng )
+    
+    Returns random 32-bit unsigned integer. 
+    """
+    if isinstance(rng, POINTER(CvRNG)):
+        temp = rng.contents.value
+        temp = c_uint32(temp*1554115554).value + (temp >> 32)
+        rng.contents.value = temp
+    elif isinstance(rng, CvRNG):
+        temp = rng.value
+        temp = c_uint32(temp*1554115554).value + (temp >> 32)
+        rng.value = temp
+    else:
+        temp = rng._obj.value
+        temp = c_uint32(temp*1554115554).value + (temp >> 32)
+        rng._obj.value = temp
+        
+    return c_uint32(temp).value
+    
+def cvRandReal(rng):
+    """double cvRandInt( CvRNG* rng )
+    
+    Returns random floating-point number between 0 and 1.
+    """
+    return c_double(cvRandInt(rng).value*3283064365386962890625e-10) # 2^-32
+
+    
 #-----------------------------------------------------------------------------
 # Image type (IplImage)
 #-----------------------------------------------------------------------------
@@ -2845,11 +2892,18 @@ cvSolveCubic = cfunc('cvSolveCubic', _cxDLL, None,
 
 # Fills array with random numbers and updates the RNG state
 cvRandArr = cfunc('cvRandArr', _cxDLL, None,
-    ('rng', c_void_p, 1), # CvRNG* rng
+    ('rng', POINTER(CvRNG), 1), # CvRNG* rng
     ('arr', CvArr_p, 1), # CvArr* arr
     ('dist_type', c_int, 1), # int dist_type
     ('param1', CvScalar, 1), # CvScalar param1
     ('param2', CvScalar, 1), # CvScalar param2 
+)
+
+# Shuffles the matrix by swapping randomly chosen pairs of the matrix elements on each iteration -- added by Minh-Tri Pham
+cvRandShuffle = cfunc('cvRandShuffle', _cxDLL, None,
+    ('mat', CvArr_p, 1), # CvArr* arr
+    ('rng', POINTER(CvRNG), 1), # CvRNG* rng
+    ('iter_factor', c_double, 1, 1.0), # double iter_factor=1
 )
 
 # --- 1.10 Discrete Transforms -----------------------------------------------
@@ -6031,6 +6085,11 @@ cvRandArr.__doc__ = """void cvRandArr(CvRNG* rng, CvArr* arr, int dist_type, CvS
 Fills array with random numbers and updates the RNG state
 """
 
+cvRandShuffle.__doc__ = """void cvRandShuffle( CvArr* mat, CvRNG* rng, double iter_factor=1. )
+
+Shuffles the matrix by swapping randomly chosen pairs of the matrix elements on each iteration
+"""
+
 cvGetOptimalDFTSize.__doc__ = """int cvGetOptimalDFTSize(int size0)
 
 Returns optimal DFT size for given vector size
@@ -7476,6 +7535,7 @@ cvDrawPolyLine = cvPolyLine
 __all__ = [x for x in locals().keys() \
     if  x.startswith('CV') or \
         x.startswith('cv') or \
+        x.startswith('Cv') or \
         x.startswith('IPL') or \
         x.startswith('ipl')]
 
