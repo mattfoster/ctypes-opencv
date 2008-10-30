@@ -120,6 +120,18 @@ if os.name == 'posix' and sys.platform.startswith('linux'):
     except:
         raise ImportError("Cannot import OpenCV's .so files. Make sure you have their path included in your PATH variable.")
 elif os.name == 'posix' and sys.platform.startswith('darwin'):
+  # could loop through other framework dirs too.
+  framework_path = '/Library/Frameworks'
+  comp_path = 'OpenCV.framework/Versions/Current/OpenCV'  
+  path = os.path.join(framework_path, comp_path)
+  if os.path.exists(path):
+    try:
+        _cxDLL = cdll.LoadLibrary(path)
+        _cvDLL = cdll.LoadLibrary(path)
+        _hgDLL = cdll.LoadLibrary(path)
+    except:
+        raise ImportError("Cannot import OpenCV Framwork. Check for problems.")
+  else:
     try:
         _cxDLL = cdll.LoadLibrary('libcxcore.dylib')
         _cvDLL = cdll.LoadLibrary('libcv.dylib')
